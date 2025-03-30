@@ -1,4 +1,82 @@
 {
-  "name": "node-window-manager",
+  "name": "@johnlindquist/node-window-manager",
+  "version": "0.0.0-development",
+  "description": "Manage windows in macOS, Windows and Linux",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "exports": {
+    "import": "./dist/index.js",
+    "require": "./dist/index.cjs",
+    "default": "./dist/index.cjs"
+  },
+  "source": "src/index.ts",
+  "types": "dist/index.d.ts",
+  "files": [
+    "./dist/**/*",
+    "./binding.gyp",
+    "./lib/**/*"
+  ],
+  "scripts": {
+    "build-gyp": "node-gyp rebuild",
+    "build-esm": "esbuild src/index.ts --bundle --platform=node --packages=external --target=node18 --format=esm --outfile=dist/index.js",
+    "build-cjs": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=cjs --packages=external  --outfile=dist/index.cjs",
+    "build-d.ts": "tsc src/index.ts --emitDeclarationOnly -d --outDir ./dist",
+    "build": "npm run build-gyp && npm run build-esm && npm run build-cjs && npm run build-d.ts",
+    "test": "node test/test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johnlindquist/node-window-manager.git"
+  },
+  "keywords": [
+    "window-manager",
+    "native",
+    "macos",
+    "linux",
+    "windows"
+  ],
+  "author": "johnlindquist",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/johnlindquist/node-window-manager/issues"
+  },
+  "homepage": "https://github.com/johnlindquist/node-window-manager#readme",
+  "devDependencies": {
+    "@types/node": "20.8.10",
+    "esbuild": "^0.19.5",
+    "node-gyp": "^10.0.1",
+    "semantic-release": "^22.0.6",
+    "tslint": "6.1.1",
+    "typescript": "5.2.2"
+  },
+  "dependencies": {
+    "bindings": "^1.5.0",
+    "node-addon-api": "7.0.0",
+    "node-gyp-build": "^4.6.1"
+  },
+  "release": {
+    "branches": [
+      "+([0-9]).x",
+      "main",
+      "next",
+      {
+        "name": "beta",
+        "prerelease": true
+      },
+      {
+        "name": "alpha",
+        "prerelease": true
+      }
+    ],
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      "@semantic-release/npm"
+    ]
+  },
   "packageManager": "yarn@4.8.1+sha512.bc946f2a022d7a1a38adfc15b36a66a3807a67629789496c3714dd1703d2e6c6b1c69ff9ec3b43141ac7a1dd853b7685638eb0074300386a59c18df351ef8ff6"
 }
