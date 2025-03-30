@@ -48,7 +48,6 @@
   "devDependencies": {
     "@types/node": "20.8.10",
     "esbuild": "^0.19.5",
-    "node-gyp": "^10.0.1",
     "semantic-release": "^22.0.6",
     "tslint": "6.1.1",
     "typescript": "5.2.2"
@@ -56,6 +55,7 @@
   "dependencies": {
     "bindings": "^1.5.0",
     "node-addon-api": "7.0.0",
+    "node-gyp": "^11.1.0",
     "node-gyp-build": "^4.6.1"
   },
   "release": {
