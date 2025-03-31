@@ -42,8 +42,8 @@ Process getWindowProcess (HWND handle) {
     wchar_t exeName[MAX_PATH]{};
 
     QueryFullProcessImageNameW (pHandle, 0, exeName, &dwSize);
-    
-    CloseHandle(pHandle);
+
+    CloseHandle (pHandle);
 
     auto wspath (exeName);
     auto path = toUtf8 (wspath);
@@ -212,24 +212,23 @@ Napi::String getWindowTitle (const Napi::CallbackInfo& info) {
 
     std::wstring ws (t);
     std::string title = toUtf8 (ws);
-    title.insert(0,"--") ;
 
     return Napi::String::New (env, title);
 }
 
 Napi::String getWindowName (const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
+    Napi::Env env = info.Env ();
 
     auto handle{ getValueFromCallbackData<HWND> (info, 0) };
 
     wchar_t name[256];
 
-    GetWindowTextW(handle, name, sizeof(name) / sizeof(name[0]));
+    GetWindowTextW (handle, name, sizeof (name) / sizeof (name[0]));
 
-    std::wstring ws(name);
-    std::string str(ws.begin(), ws.end());
+    std::wstring ws (name);
+    std::string str (ws.begin (), ws.end ());
 
-    return Napi::String::New(env, str);
+    return Napi::String::New (env, str);
 }
 
 Napi::Number getWindowOpacity (const Napi::CallbackInfo& info) {
@@ -308,11 +307,11 @@ Napi::Boolean setWindowParent (const Napi::CallbackInfo& info) {
     RECT rect{};
     GetClientRect (newOwner, &rect);
 
-    //SetWindowLongPtrA (handle, GWLP_HWNDPARENT, newOwner);
-    //SetWindowLongPtrA (handle, GWL_STYLE, WS_CHILD | WS_VISIBLE);
-    SetParent(handle, newOwner) ;
-    SetWindowPos(handle, 0, rect.left, rect.top, rect.right, rect.bottom, 0) ;
-    SetActiveWindow(handle) ;
+    // SetWindowLongPtrA (handle, GWLP_HWNDPARENT, newOwner);
+    // SetWindowLongPtrA (handle, GWL_STYLE, WS_CHILD | WS_VISIBLE);
+    SetParent (handle, newOwner);
+    SetWindowPos (handle, 0, rect.left, rect.top, rect.right, rect.bottom, 0);
+    SetActiveWindow (handle);
 
     return Napi::Boolean::New (env, true);
 }
@@ -417,108 +416,103 @@ Napi::Object getMonitorInfo (const Napi::CallbackInfo& info) {
     return obj;
 }
 
-Napi::Boolean hideInstantly(const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
+Napi::Boolean hideInstantly (const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env ();
 
-    if (info.Length() < 1 || !info[0].IsNumber()) {
-        Napi::TypeError::New(env, "Number expected").ThrowAsJavaScriptException();
+    if (info.Length () < 1 || !info[0].IsNumber ()) {
+        Napi::TypeError::New (env, "Number expected").ThrowAsJavaScriptException ();
     }
 
-    uint32_t handleNumber = info[0].As<Napi::Number>().Uint32Value();
-    HWND handle = reinterpret_cast<HWND>(handleNumber);
+    uint32_t handleNumber = info[0].As<Napi::Number> ().Uint32Value ();
+    HWND handle = reinterpret_cast<HWND> (handleNumber);
 
     // Get the current window styles
-    LONG styles = GetWindowLong(handle, GWL_STYLE);
-    LONG exStyles = GetWindowLong(handle, GWL_EXSTYLE);
+    LONG styles = GetWindowLong (handle, GWL_STYLE);
+    LONG exStyles = GetWindowLong (handle, GWL_EXSTYLE);
 
     // Remove the WS_EX_LAYERED, WS_EX_TRANSPARENT and WS_OVERLAPPEDWINDOW styles
-    SetWindowLong(handle, GWL_STYLE, styles & ~WS_OVERLAPPEDWINDOW);
-    SetWindowLong(handle, GWL_EXSTYLE, exStyles & ~(WS_EX_LAYERED | WS_EX_TRANSPARENT));
+    SetWindowLong (handle, GWL_STYLE, styles & ~WS_OVERLAPPEDWINDOW);
+    SetWindowLong (handle, GWL_EXSTYLE, exStyles & ~(WS_EX_LAYERED | WS_EX_TRANSPARENT));
 
-    BOOL result = ShowWindow(handle, SW_HIDE);
+    BOOL result = ShowWindow (handle, SW_HIDE);
 
-    return Napi::Boolean::New(env, result);
+    return Napi::Boolean::New (env, result);
 }
 
 
-Napi::Boolean forceWindowPaint(const Napi::CallbackInfo& info) {
-    Napi::Env env{ info.Env() };
+Napi::Boolean forceWindowPaint (const Napi::CallbackInfo& info) {
+    Napi::Env env{ info.Env () };
 
-    if (info.Length() < 1 || !info[0].IsNumber()) {
-        Napi::TypeError::New(env, "Number expected").ThrowAsJavaScriptException();
+    if (info.Length () < 1 || !info[0].IsNumber ()) {
+        Napi::TypeError::New (env, "Number expected").ThrowAsJavaScriptException ();
     }
 
-    uint32_t handleNumber = info[0].As<Napi::Number>().Uint32Value();
-    HWND handle = reinterpret_cast<HWND>(handleNumber);
+    uint32_t handleNumber = info[0].As<Napi::Number> ().Uint32Value ();
+    HWND handle = reinterpret_cast<HWND> (handleNumber);
 
-    BOOL b{ RedrawWindow(handle, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW) };
+    BOOL b{ RedrawWindow (handle, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW) };
 
-    return Napi::Boolean::New(env, b);
+    return Napi::Boolean::New (env, b);
 }
 
-Napi::Boolean setWindowAsPopup(const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
+Napi::Boolean setWindowAsPopup (const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env ();
 
-    if (info.Length() < 1 || !info[0].IsNumber()) {
-        Napi::TypeError::New(env, "Number expected").ThrowAsJavaScriptException();
+    if (info.Length () < 1 || !info[0].IsNumber ()) {
+        Napi::TypeError::New (env, "Number expected").ThrowAsJavaScriptException ();
     }
 
-    uint32_t handleNumber = info[0].As<Napi::Number>().Uint32Value();
-    HWND handle = reinterpret_cast<HWND>(handleNumber);
+    uint32_t handleNumber = info[0].As<Napi::Number> ().Uint32Value ();
+    HWND handle = reinterpret_cast<HWND> (handleNumber);
 
     // Get the current window style
-    LONG lStyle = GetWindowLongPtr(handle, GWL_STYLE);
+    LONG lStyle = GetWindowLongPtr (handle, GWL_STYLE);
 
     // Modify the window style to a pop-up window
     lStyle &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU);
     lStyle |= WS_POPUP;
 
     // Apply the new style
-    SetWindowLongPtr(handle, GWL_STYLE, lStyle);
+    SetWindowLongPtr (handle, GWL_STYLE, lStyle);
 
     // Redraw the window so the new style takes effect
     // SetWindowPos(handle, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 
-    return Napi::Boolean::New(env, true);
+    return Napi::Boolean::New (env, true);
 }
 
 // The enum flag for DwmSetWindowAttribute's second parameter, which tells the function what attribute to set.
-enum DWMWINDOWATTRIBUTE
-{
-    DWMWA_WINDOW_CORNER_PREFERENCE = 33
-};
+enum DWMWINDOWATTRIBUTE { DWMWA_WINDOW_CORNER_PREFERENCE = 33 };
 
-// The DWM_WINDOW_CORNER_PREFERENCE enum for DwmSetWindowAttribute's third parameter, which tells the function
-// what value of the enum to set.
-enum DWM_WINDOW_CORNER_PREFERENCE
-{
-    DWMWCP_DEFAULT      = 0,
-    DWMWCP_DONOTROUND   = 1,
-    DWMWCP_ROUND        = 2,
-    DWMWCP_ROUNDSMALL   = 3
+// The DWM_WINDOW_CORNER_PREFERENCE enum for DwmSetWindowAttribute's third parameter, which tells
+// the function what value of the enum to set.
+enum DWM_WINDOW_CORNER_PREFERENCE {
+    DWMWCP_DEFAULT = 0,
+    DWMWCP_DONOTROUND = 1,
+    DWMWCP_ROUND = 2,
+    DWMWCP_ROUNDSMALL = 3
 };
 
 // Import dwmapi.dll and define DwmSetWindowAttribute in C++ corresponding to the native function.
-extern "C" __declspec(dllimport)
-HRESULT DwmSetWindowAttribute(HWND hwnd,
-                              DWMWINDOWATTRIBUTE dwAttribute,
-                              LPCVOID pvAttribute,
-                              DWORD cbAttribute);
+extern "C" __declspec (dllimport) HRESULT DwmSetWindowAttribute (HWND hwnd,
+                                                                 DWMWINDOWATTRIBUTE dwAttribute,
+                                                                 LPCVOID pvAttribute,
+                                                                 DWORD cbAttribute);
 
-Napi::Boolean setWindowAsPopupWithRoundedCorners(const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
+Napi::Boolean setWindowAsPopupWithRoundedCorners (const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env ();
 
-    if (info.Length() < 1 || !info[0].IsNumber()) {
-        Napi::TypeError::New(env, "Number expected").ThrowAsJavaScriptException();
-        return Napi::Boolean::New(env, false);
+    if (info.Length () < 1 || !info[0].IsNumber ()) {
+        Napi::TypeError::New (env, "Number expected").ThrowAsJavaScriptException ();
+        return Napi::Boolean::New (env, false);
     }
 
-    uint32_t handleNumber = info[0].As<Napi::Number>().Uint32Value();
-    HWND handle = reinterpret_cast<HWND>(handleNumber);
+    uint32_t handleNumber = info[0].As<Napi::Number> ().Uint32Value ();
+    HWND handle = reinterpret_cast<HWND> (handleNumber);
 
     // Get the current window styles
-    LONG lStyle = GetWindowLongPtr(handle, GWL_STYLE);
-    LONG lExStyle = GetWindowLongPtr(handle, GWL_EXSTYLE);
+    LONG lStyle = GetWindowLongPtr (handle, GWL_STYLE);
+    LONG lExStyle = GetWindowLongPtr (handle, GWL_EXSTYLE);
 
     // Modify the window style to a pop-up window and apply WS_EX_COMPOSITED
     lStyle &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU);
@@ -526,56 +520,56 @@ Napi::Boolean setWindowAsPopupWithRoundedCorners(const Napi::CallbackInfo& info)
     lExStyle |= WS_EX_COMPOSITED;
 
     // Apply the new styles
-    SetWindowLongPtr(handle, GWL_STYLE, lStyle);
-    SetWindowLongPtr(handle, GWL_EXSTYLE, lExStyle);
+    SetWindowLongPtr (handle, GWL_STYLE, lStyle);
+    SetWindowLongPtr (handle, GWL_EXSTYLE, lExStyle);
 
     // Set the corner preference to be rounded
     DWM_WINDOW_CORNER_PREFERENCE preference = DWMWCP_ROUND;
-    DwmSetWindowAttribute(handle, DWMWA_WINDOW_CORNER_PREFERENCE, &preference, sizeof(preference));
+    DwmSetWindowAttribute (handle, DWMWA_WINDOW_CORNER_PREFERENCE, &preference, sizeof (preference));
 
     // Redraw the window so the new style takes effect
-    RedrawWindow(handle, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+    RedrawWindow (handle, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
 
-    return Napi::Boolean::New(env, true);
+    return Napi::Boolean::New (env, true);
 }
 
 // This isn't working. Still trying to figure out how to disable all the zoom/fade animations on windows caused by these global settings:
 // "Animate windows when minimizing and maximizing"
 // "Animate controls and elements inside windows"
-Napi::Boolean showInstantly(const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
+Napi::Boolean showInstantly (const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env ();
 
-    if (info.Length() < 1 || !info[0].IsNumber()) {
-        Napi::TypeError::New(env, "Number expected").ThrowAsJavaScriptException();
-        return Napi::Boolean::New(env, false);
+    if (info.Length () < 1 || !info[0].IsNumber ()) {
+        Napi::TypeError::New (env, "Number expected").ThrowAsJavaScriptException ();
+        return Napi::Boolean::New (env, false);
     }
 
-    uint32_t handleNumber = info[0].As<Napi::Number>().Uint32Value();
-    HWND handle = reinterpret_cast<HWND>(handleNumber);
+    uint32_t handleNumber = info[0].As<Napi::Number> ().Uint32Value ();
+    HWND handle = reinterpret_cast<HWND> (handleNumber);
 
     // Disable the "Animate controls and elements inside windows" animation
-    ANIMATIONINFO animationInfo = { sizeof(animationInfo) };
+    ANIMATIONINFO animationInfo = { sizeof (animationInfo) };
     animationInfo.iMinAnimate = 0;
-    SystemParametersInfo(SPI_SETANIMATION, sizeof(animationInfo), &animationInfo, 0);
+    SystemParametersInfo (SPI_SETANIMATION, sizeof (animationInfo), &animationInfo, 0);
 
     // Show the window instantly without any animation
-    SetWindowPos(handle, NULL, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
+    SetWindowPos (handle, NULL, 0, 0, 0, 0,
+                  SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
 
     // Bring the window to the foreground and activate it
-    SetForegroundWindow(handle);
-    SetActiveWindow(handle);
+    SetForegroundWindow (handle);
+    SetActiveWindow (handle);
 
     // Restore the animation settings
     animationInfo.iMinAnimate = 1;
-    SystemParametersInfo(SPI_SETANIMATION, sizeof(animationInfo), &animationInfo, 0);
+    SystemParametersInfo (SPI_SETANIMATION, sizeof (animationInfo), &animationInfo, 0);
 
 
     // Redraw window
-    RedrawWindow(handle, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
+    RedrawWindow (handle, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
 
-    return Napi::Boolean::New(env, true);
+    return Napi::Boolean::New (env, true);
 }
-
 
 
 Napi::Object Init (Napi::Env env, Napi::Object exports) {
@@ -604,11 +598,12 @@ Napi::Object Init (Napi::Env env, Napi::Object exports) {
     exports.Set (Napi::String::New (env, "getMonitors"), Napi::Function::New (env, getMonitors));
     exports.Set (Napi::String::New (env, "createProcess"), Napi::Function::New (env, createProcess));
     exports.Set (Napi::String::New (env, "getProcessMainWindow"), Napi::Function::New (env, getProcessMainWindow));
-    exports.Set(Napi::String::New(env, "forceWindowPaint"), Napi::Function::New(env, forceWindowPaint));
-    exports.Set(Napi::String::New(env, "hideInstantly"), Napi::Function::New(env, hideInstantly));
-    exports.Set(Napi::String::New(env, "setWindowAsPopup"), Napi::Function::New(env, setWindowAsPopup));
-    exports.Set(Napi::String::New(env, "setWindowAsPopupWithRoundedCorners"), Napi::Function::New(env, setWindowAsPopupWithRoundedCorners));
-    exports.Set(Napi::String::New(env, "showInstantly"), Napi::Function::New(env, showInstantly));
+    exports.Set (Napi::String::New (env, "forceWindowPaint"), Napi::Function::New (env, forceWindowPaint));
+    exports.Set (Napi::String::New (env, "hideInstantly"), Napi::Function::New (env, hideInstantly));
+    exports.Set (Napi::String::New (env, "setWindowAsPopup"), Napi::Function::New (env, setWindowAsPopup));
+    exports.Set (Napi::String::New (env, "setWindowAsPopupWithRoundedCorners"),
+                 Napi::Function::New (env, setWindowAsPopupWithRoundedCorners));
+    exports.Set (Napi::String::New (env, "showInstantly"), Napi::Function::New (env, showInstantly));
     return exports;
 }
 
