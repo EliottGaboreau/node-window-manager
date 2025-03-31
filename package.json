@@ -48,7 +48,6 @@
   "devDependencies": {
     "@types/node": "20.8.10",
     "esbuild": "^0.19.5",
-    "node-gyp": "^10.0.1",
     "semantic-release": "^22.0.6",
     "tslint": "6.1.1",
     "typescript": "5.2.2"
@@ -56,6 +55,7 @@
   "dependencies": {
     "bindings": "^1.5.0",
     "node-addon-api": "7.0.0",
+    "node-gyp": "^11.1.0",
     "node-gyp-build": "^4.6.1"
   },
   "release": {
@@ -77,5 +77,6 @@
       "@semantic-release/release-notes-generator",
       "@semantic-release/npm"
     ]
-  }
+  },
+  "packageManager": "yarn@4.8.1+sha512.bc946f2a022d7a1a38adfc15b36a66a3807a67629789496c3714dd1703d2e6c6b1c69ff9ec3b43141ac7a1dd853b7685638eb0074300386a59c18df351ef8ff6"
 }
