@@ -25,7 +25,7 @@ Napi::Boolean requestAccessibility(const Napi::CallbackInfo &info) {
 
 bool _requestScreenCapture(bool showDialog) {
   NSDictionary* opts = @{static_cast<id> (kAXTrustedCheckOptionPrompt): showDialog ? @YES : @NO};
-  return CGPreflightScreenCaptureAccess();
+  return CGRequestScreenCaptureAccess();
 }
 
 Napi::Boolean requestScreenCapture(const Napi::CallbackInfo &info) {
