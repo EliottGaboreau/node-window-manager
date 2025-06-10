@@ -57,6 +57,11 @@ class WindowManager extends EventEmitter {
     return addon.requestAccessibility()
   }
 
+  requestScreenCapture = () => {
+    if (!addon || !addon.requestScreenCapture) return true
+    return addon.requestScreenCapture()
+  }
+
   getActiveWindow = () => {
     if (!addon) return
     return new Window(addon.getActiveWindow())

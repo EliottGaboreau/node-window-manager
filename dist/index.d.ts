@@ -8,6 +8,7 @@ declare const addon: any;
 declare class WindowManager extends EventEmitter {
     constructor();
     requestAccessibility: () => any;
+    requestScreenCapture: () => any;
     getActiveWindow: () => Window;
     getWindows: () => Window[];
     getMonitors: () => Monitor[];

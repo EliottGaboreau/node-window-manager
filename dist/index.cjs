@@ -288,6 +288,11 @@ var WindowManager = class extends import_events.EventEmitter {
       return true;
     return addon.requestAccessibility();
   };
+  requestScreenCapture = () => {
+    if (!addon || !addon.requestScreenCapture)
+      return true;
+    return addon.requestScreenCapture();
+  };
   getActiveWindow = () => {
     if (!addon)
       return;
