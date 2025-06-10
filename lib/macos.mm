@@ -23,14 +23,17 @@ Napi::Boolean requestAccessibility(const Napi::CallbackInfo &info) {
   return Napi::Boolean::New(env, _requestAccessibility(true));
 }
 
-bool _requestScreenCapture(bool showDialog) {
-  NSDictionary* opts = @{static_cast<id> (kAXTrustedCheckOptionPrompt): showDialog ? @YES : @NO};
-  return CGRequestScreenCaptureAccess();
+bool _requestScreenCapture() {
+  bool hasScreenAccess = CGPreflightScreenCaptureAccess();
+  if (!hasScreenAccess) {
+      CGRequestScreenCaptureAccess();
+  }
+  return hasScreenAccess;
 }
 
 Napi::Boolean requestScreenCapture(const Napi::CallbackInfo &info) {
   Napi::Env env{info.Env()};
-  return Napi::Boolean::New(env, _requestScreenCapture(true));
+  return Napi::Boolean::New(env, _requestScreenCapture());
 }
 
 NSDictionary* getWindowInfo(int handle) {
