@@ -225,6 +225,11 @@ var Window = class _Window {
       return 1;
     return addon.getWindowOpacity(this.id);
   }
+  getZOrder() {
+    if (!addon || !addon.getWindowZOrder)
+      return -1;
+    return addon.getWindowZOrder(this.id);
+  }
   setParent(window) {
     if (!addon || !addon.setWindowParent)
       return;

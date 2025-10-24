@@ -23,6 +23,7 @@ export declare class Window {
     toggleTransparency(toggle: boolean): void;
     setOpacity(opacity: number): void;
     getOpacity(): any;
+    getZOrder(): number;
     setParent(window: Window | null | number): void;
     getOwner(): Window;
 }

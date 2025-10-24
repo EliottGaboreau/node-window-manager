@@ -343,6 +343,29 @@ Napi::Boolean setWindowMaximized(const Napi::CallbackInfo &info) {
 }
 
 
+Napi::Number getWindowZOrder(const Napi::CallbackInfo &info) {
+  Napi::Env env{info.Env()};
+
+  int handle = info[0].As<Napi::Number>().Int32Value();
+
+  // Build a z-ordered list of on-screen windows (front to back)
+  CGWindowListOption listOptions = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements | kCGWindowListOptionOnScreenAboveWindow;
+  // Using kCGWindowListOptionOnScreenAboveWindow with the target handle will return windows ABOVE it
+  CFArrayRef windowsAbove = CGWindowListCopyWindowInfo(listOptions, (CGWindowID)handle);
+
+  // If API call fails, return -1 to indicate unknown
+  if (!windowsAbove) {
+    return Napi::Number::New(env, -1);
+  }
+
+  CFIndex count = CFArrayGetCount(windowsAbove);
+  CFRelease(windowsAbove);
+
+  // Number of windows above is the z-index (0 == frontmost)
+  return Napi::Number::New(env, (int)count);
+}
+
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set(Napi::String::New(env, "getWindows"),
                 Napi::Function::New(env, getWindows));
@@ -366,6 +389,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
                 Napi::Function::New(env, setWindowMaximized));
     exports.Set(Napi::String::New(env, "requestAccessibility"),
                 Napi::Function::New(env, requestAccessibility));
+    exports.Set(Napi::String::New(env, "getWindowZOrder"),
+                Napi::Function::New(env, getWindowZOrder));
 
     return exports;
 }

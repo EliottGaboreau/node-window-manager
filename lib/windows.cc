@@ -384,6 +384,24 @@ Napi::Boolean isWindowVisible (const Napi::CallbackInfo& info) {
     return Napi::Boolean::New (env, IsWindowVisible (handle));
 }
 
+Napi::Number getWindowZOrder (const Napi::CallbackInfo& info) {
+    Napi::Env env{ info.Env () };
+
+    auto handle{ getValueFromCallbackData<HWND> (info, 0) };
+
+    // Count how many windows are above this one in the Z-order
+    // Topmost window should return 0
+    int zIndex = 0;
+    HWND walker = handle;
+    while (walker) {
+        walker = GetWindow (walker, GW_HWNDPREV);
+        if (walker)
+            ++zIndex;
+    }
+
+    return Napi::Number::New (env, zIndex);
+}
+
 Napi::Object getMonitorInfo (const Napi::CallbackInfo& info) {
     Napi::Env env{ info.Env () };
 
@@ -604,6 +622,7 @@ Napi::Object Init (Napi::Env env, Napi::Object exports) {
     exports.Set (Napi::String::New (env, "setWindowAsPopupWithRoundedCorners"),
                  Napi::Function::New (env, setWindowAsPopupWithRoundedCorners));
     exports.Set (Napi::String::New (env, "showInstantly"), Napi::Function::New (env, showInstantly));
+    exports.Set (Napi::String::New (env, "getWindowZOrder"), Napi::Function::New (env, getWindowZOrder));
     return exports;
 }
 

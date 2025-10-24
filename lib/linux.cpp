@@ -134,6 +134,50 @@ Napi::Boolean isWindow (const Napi::CallbackInfo& info) {
     return Napi::Boolean::New (env, s != 0);
 }
 
+Napi::Number getWindowZOrder (const Napi::CallbackInfo& info) {
+    Napi::Env env{ info.Env () };
+
+    // Best-effort: EWMH doesn't provide a portable, direct z-order across all WMs.
+    // We approximate using the _NET_CLIENT_LIST_STACKING if available.
+    Display* display = XOpenDisplay(NULL);
+    if (!display) return Napi::Number::New(env, -1);
+
+    Window root = XDefaultRootWindow(display);
+    Atom stackingAtom = XInternAtom(display, "_NET_CLIENT_LIST_STACKING", True);
+    if (stackingAtom == None) {
+        XCloseDisplay(display);
+        return Napi::Number::New(env, -1);
+    }
+
+    Atom type;
+    int format;
+    unsigned long nItems, bytesAfter;
+    unsigned char* data = NULL;
+    if (XGetWindowProperty(display, root, stackingAtom, 0, 1024, False, XA_WINDOW,
+                           &type, &format, &nItems, &bytesAfter, &data) != Success || !data) {
+        XCloseDisplay(display);
+        return Napi::Number::New(env, -1);
+    }
+
+    Window* list = reinterpret_cast<Window*>(data);
+    Window target = getValueFromCallbackData<Window>(info, 0);
+
+    // _NET_CLIENT_LIST_STACKING is bottom->top per EWMH spec; z-index is count of windows above
+    int index = -1;
+    for (unsigned long i = 0; i < nItems; ++i) {
+        if (list[i] == target) { index = (int)i; break; }
+    }
+
+    int zIndex = -1;
+    if (index >= 0) {
+        zIndex = (int)(nItems - 1 - index);
+    }
+
+    XFree(data);
+    XCloseDisplay(display);
+    return Napi::Number::New(env, zIndex);
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("getProcessMainWindow", Napi::Function::New(env, getProcessMainWindow));
     exports.Set("createProcess", Napi::Function::New(env, createProcess));
@@ -142,6 +186,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("setWindowBounds", Napi::Function::New(env, setWindowBounds));
     exports.Set("showWindow", Napi::Function::New(env, showWindow));
     exports.Set("isWindow", Napi::Function::New(env, isWindow));
+    exports.Set("getWindowZOrder", Napi::Function::New(env, getWindowZOrder));
     return exports;
 }
 

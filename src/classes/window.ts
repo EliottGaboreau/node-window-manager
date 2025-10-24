@@ -154,6 +154,11 @@ export class Window {
     return addon.getWindowOpacity(this.id)
   }
 
+  getZOrder(): number {
+    if (!addon || !addon.getWindowZOrder) return -1
+    return addon.getWindowZOrder(this.id)
+  }
+
   setParent(window: Window | null | number) {
     if (!addon || !addon.setWindowParent) return
 
