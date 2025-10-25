@@ -4,9 +4,10 @@
 #include <napi.h>
 #include <string>
 #include <map>
+#include <vector>
 #include <thread>
 #include <fstream>
-#include <iostream> // Add this line at the top of the file
+#include <iostream>
 
 extern "C" AXError _AXUIElementGetWindow(AXUIElementRef, CGWindowID* out);
 
@@ -365,6 +366,100 @@ Napi::Number getWindowZOrder(const Napi::CallbackInfo &info) {
   return Napi::Number::New(env, (int)count);
 }
 
+Napi::Array getWindowsSummary(const Napi::CallbackInfo &info) {
+  Napi::Env env{info.Env()};
+
+  CGWindowListOption listOptions = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+  CFArrayRef windowList = CGWindowListCopyWindowInfo(listOptions, kCGNullWindowID);
+
+  if (!windowList) {
+    return Napi::Array::New(env, 0);
+  }
+
+  // Build Z-order map (front to back, so index 0 = Z-order 0)
+  std::map<int, int> zOrderMap;
+  CFIndex totalWindows = CFArrayGetCount(windowList);
+  for (CFIndex i = 0; i < totalWindows; i++) {
+    NSDictionary *info = (NSDictionary *)CFArrayGetValueAtIndex(windowList, i);
+    NSNumber *windowNumber = info[(id)kCGWindowNumber];
+    if (windowNumber) {
+      zOrderMap[[windowNumber intValue]] = (int)i;
+    }
+  }
+
+  std::vector<Napi::Object> results;
+  results.reserve(totalWindows);
+
+  for (NSDictionary *info in (NSArray *)windowList) {
+    NSNumber *ownerPid = info[(id)kCGWindowOwnerPID];
+    NSNumber *windowNumber = info[(id)kCGWindowNumber];
+    
+    if (!ownerPid || !windowNumber) continue;
+
+    int handle = [windowNumber intValue];
+    int pid = [ownerPid intValue];
+
+    // Get app info
+    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+    if (!app || !app.bundleURL || !app.bundleURL.path) continue;
+
+    const char* path = [app.bundleURL.path UTF8String];
+    if (!path || strcmp(path, "") == 0) continue;
+
+    // Get title (try kCGWindowName first, fallback to kCGWindowOwnerName)
+    NSString *windowName = info[(id)kCGWindowName];
+    if (!windowName || [windowName length] == 0) {
+      windowName = info[(id)kCGWindowOwnerName];
+    }
+    if (!windowName || [windowName length] == 0) continue;
+
+    const char* title = [windowName UTF8String];
+    if (!title || strcmp(title, "") == 0) continue;
+
+    // Get bounds
+    CGRect bounds;
+    if (!CGRectMakeWithDictionaryRepresentation((CFDictionaryRef)info[(id)kCGWindowBounds], &bounds)) {
+      continue;
+    }
+
+    // Get Z-order from map
+    int zOrder = -1;
+    auto zIt = zOrderMap.find(handle);
+    if (zIt != zOrderMap.end()) {
+      zOrder = zIt->second;
+    }
+
+    // Create summary object
+    Napi::Object summary = Napi::Object::New(env);
+    summary.Set("id", Napi::Number::New(env, handle));
+    summary.Set("title", Napi::String::New(env, title));
+    summary.Set("path", Napi::String::New(env, path));
+    summary.Set("processId", Napi::Number::New(env, pid));
+
+    // Bounds
+    Napi::Object boundsObj = Napi::Object::New(env);
+    boundsObj.Set("x", Napi::Number::New(env, bounds.origin.x));
+    boundsObj.Set("y", Napi::Number::New(env, bounds.origin.y));
+    boundsObj.Set("width", Napi::Number::New(env, bounds.size.width));
+    boundsObj.Set("height", Napi::Number::New(env, bounds.size.height));
+    summary.Set("bounds", boundsObj);
+
+    summary.Set("zOrder", Napi::Number::New(env, zOrder));
+
+    results.push_back(summary);
+  }
+
+  CFRelease(windowList);
+
+  // Convert vector to Napi::Array
+  auto arr = Napi::Array::New(env, results.size());
+  for (size_t i = 0; i < results.size(); i++) {
+    arr[i] = results[i];
+  }
+
+  return arr;
+}
+
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set(Napi::String::New(env, "getWindows"),
@@ -391,6 +486,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
                 Napi::Function::New(env, requestAccessibility));
     exports.Set(Napi::String::New(env, "getWindowZOrder"),
                 Napi::Function::New(env, getWindowZOrder));
+    exports.Set(Napi::String::New(env, "getWindowsSummary"),
+                Napi::Function::New(env, getWindowsSummary));
 
     return exports;
 }
