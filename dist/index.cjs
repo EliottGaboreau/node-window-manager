@@ -355,6 +355,11 @@ var WindowManager = class extends import_events.EventEmitter {
     let handleNumber = handle.readUInt32LE(0);
     return addon.showInstantly(handleNumber);
   };
+  getWindowsSummary = () => {
+    if (!addon || !addon.getWindowsSummary)
+      return [];
+    return addon.getWindowsSummary();
+  };
 };
 var windowManager = new WindowManager();
 // Annotate the CommonJS export names for ESM import in node:

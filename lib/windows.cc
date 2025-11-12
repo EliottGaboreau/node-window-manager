@@ -4,6 +4,8 @@
 #include <napi.h>
 #include <shtypes.h>
 #include <string>
+#include <unordered_map>
+#include <vector>
 #include <windows.h>
 
 typedef int (__stdcall* lp_GetScaleFactorForMonitor) (HMONITOR, DEVICE_SCALE_FACTOR*);
@@ -402,6 +404,133 @@ Napi::Number getWindowZOrder (const Napi::CallbackInfo& info) {
     return Napi::Number::New (env, zIndex);
 }
 
+Napi::Array getWindowsSummary (const Napi::CallbackInfo& info) {
+    Napi::Env env{ info.Env () };
+
+    _windows.clear ();
+    EnumWindows (&EnumWindowsProc, NULL);
+
+    // Build Z-order map once
+    std::unordered_map<HWND, int> zOrderMap;
+    int currentZ = 0;
+    HWND walker = GetTopWindow (NULL);
+    while (walker) {
+        zOrderMap[walker] = currentZ++;
+        walker = GetWindow (walker, GW_HWNDNEXT);
+    }
+
+    // Load SHcore.dll once for all windows
+    HMODULE hShcore = LoadLibraryA ("SHcore.dll");
+    lp_GetScaleFactorForMonitor getScaleFactor = nullptr;
+    if (hShcore) {
+        getScaleFactor = (lp_GetScaleFactorForMonitor)GetProcAddress (hShcore, "GetScaleFactorForMonitor");
+    }
+
+    // Build monitor scale factor cache
+    std::unordered_map<HMONITOR, double> scaleFactorCache;
+
+    auto arr = Napi::Array::New (env);
+    int resultIndex = 0;
+
+    // Reusable buffer for window titles (most titles < 256 chars)
+    std::vector<WCHAR> titleBuffer (256);
+
+    for (auto _win : _windows) {
+        HWND handle = reinterpret_cast<HWND> (_win);
+
+        // Filter: only visible windows
+        if (!IsWindowVisible (handle))
+            continue;
+
+        // Get title length first
+        int titleLen = GetWindowTextLengthW (handle);
+        if (titleLen == 0)
+            continue;
+
+        // Resize buffer if needed
+        if (titleLen >= static_cast<int>(titleBuffer.size ())) {
+            titleBuffer.resize (titleLen + 1);
+        }
+
+        // Get title into reusable buffer
+        int actualLen = GetWindowTextW (handle, titleBuffer.data (), titleBuffer.size ());
+        if (actualLen == 0)
+            continue;
+
+        std::string title = toUtf8 (std::wstring (titleBuffer.data (), actualLen));
+        if (title.empty ())
+            continue;
+
+        // Get process info (optimized to batch process handle operations)
+        DWORD pid = 0;
+        GetWindowThreadProcessId (handle, &pid);
+        if (pid == 0)
+            continue;
+
+        HANDLE pHandle = OpenProcess (PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (!pHandle)
+            continue;
+
+        DWORD pathSize = MAX_PATH;
+        wchar_t exePath[MAX_PATH]{};
+        QueryFullProcessImageNameW (pHandle, 0, exePath, &pathSize);
+        CloseHandle (pHandle);
+
+        std::string path = toUtf8 (std::wstring (exePath));
+        if (path.empty ())
+            continue;
+
+        // Get bounds
+        RECT rect{};
+        if (!GetWindowRect (handle, &rect))
+            continue;
+
+        // Get monitor and scale factor (cached)
+        HMONITOR hMonitor = MonitorFromWindow (handle, MONITOR_DEFAULTTONEAREST);
+        double scaleFactor = 1.0;
+
+        auto scaleIt = scaleFactorCache.find (hMonitor);
+        if (scaleIt != scaleFactorCache.end ()) {
+            scaleFactor = scaleIt->second;
+        } else if (getScaleFactor) {
+            DEVICE_SCALE_FACTOR sf{};
+            if (SUCCEEDED (getScaleFactor (hMonitor, &sf))) {
+                scaleFactor = static_cast<double> (sf) / 100.;
+                scaleFactorCache[hMonitor] = scaleFactor;
+            }
+        }
+
+        // Create summary object
+        Napi::Object summary = Napi::Object::New (env);
+        summary.Set ("id", Napi::Number::New (env, _win));
+        summary.Set ("title", Napi::String::New (env, title));
+        summary.Set ("path", Napi::String::New (env, path));
+        summary.Set ("processId", Napi::Number::New (env, static_cast<int> (pid)));
+
+        // Bounds (scaled for Win32)
+        Napi::Object bounds = Napi::Object::New (env);
+        bounds.Set ("x", Napi::Number::New (env, std::floor (rect.left / scaleFactor)));
+        bounds.Set ("y", Napi::Number::New (env, std::floor (rect.top / scaleFactor)));
+        bounds.Set ("width", Napi::Number::New (env, std::floor ((rect.right - rect.left) / scaleFactor)));
+        bounds.Set ("height", Napi::Number::New (env, std::floor ((rect.bottom - rect.top) / scaleFactor)));
+        summary.Set ("bounds", bounds);
+
+        // Z-order
+        auto zIt = zOrderMap.find (handle);
+        int zOrder = (zIt != zOrderMap.end ()) ? zIt->second : -1;
+        summary.Set ("zOrder", Napi::Number::New (env, zOrder));
+
+        arr.Set (resultIndex++, summary);
+    }
+
+    // Cleanup
+    if (hShcore) {
+        FreeLibrary (hShcore);
+    }
+
+    return arr;
+}
+
 Napi::Object getMonitorInfo (const Napi::CallbackInfo& info) {
     Napi::Env env{ info.Env () };
 
@@ -623,6 +752,7 @@ Napi::Object Init (Napi::Env env, Napi::Object exports) {
                  Napi::Function::New (env, setWindowAsPopupWithRoundedCorners));
     exports.Set (Napi::String::New (env, "showInstantly"), Napi::Function::New (env, showInstantly));
     exports.Set (Napi::String::New (env, "getWindowZOrder"), Napi::Function::New (env, getWindowZOrder));
+    exports.Set (Napi::String::New (env, "getWindowsSummary"), Napi::Function::New (env, getWindowsSummary));
     return exports;
 }
 

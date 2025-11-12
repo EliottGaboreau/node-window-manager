@@ -318,6 +318,11 @@ var WindowManager = class extends EventEmitter {
     let handleNumber = handle.readUInt32LE(0);
     return addon.showInstantly(handleNumber);
   };
+  getWindowsSummary = () => {
+    if (!addon || !addon.getWindowsSummary)
+      return [];
+    return addon.getWindowsSummary();
+  };
 };
 var windowManager = new WindowManager();
 export {

@@ -26,6 +26,7 @@
     "build-cjs": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=cjs --packages=external  --outfile=dist/index.cjs",
     "build-d.ts": "tsc src/index.ts --emitDeclarationOnly -d --outDir ./dist",
     "build": "npm run build-gyp && npm run build-esm && npm run build-cjs && npm run build-d.ts",
+    "print:windows": "node scripts/print-windows.mjs",
     "test": "node test/test.js"
   },
   "repository": {

@@ -2,6 +2,7 @@ import { Window } from "./classes/window"
 import { EventEmitter } from "events"
 import { Monitor } from "./classes/monitor"
 import { EmptyMonitor } from "./classes/empty-monitor"
+import { IWindowSummary } from "./interfaces"
 import bindings from "bindings"
 
 const addon = bindings("addon.node")
@@ -121,6 +122,11 @@ class WindowManager extends EventEmitter {
     if (!addon || !addon.showInstantly) return
     let handleNumber = handle.readUInt32LE(0)
     return addon.showInstantly(handleNumber)
+  }
+
+  getWindowsSummary = (): IWindowSummary[] => {
+    if (!addon || !addon.getWindowsSummary) return []
+    return addon.getWindowsSummary()
   }
 }
 
