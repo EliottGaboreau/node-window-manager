@@ -19,4 +19,5 @@ export interface IWindowSummary {
   processId: number;
   bounds: IRectangle;
   zOrder: number;
+  isVisible: boolean;
 }

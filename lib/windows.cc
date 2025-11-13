@@ -426,6 +426,14 @@ Napi::Array getWindowsSummary (const Napi::CallbackInfo& info) {
         getScaleFactor = (lp_GetScaleFactorForMonitor)GetProcAddress (hShcore, "GetScaleFactorForMonitor");
     }
 
+    // Load dwmapi.dll once for DWM cloaking checks
+    HMODULE hDwmapi = LoadLibraryA ("dwmapi.dll");
+    typedef HRESULT (WINAPI *DwmGetWindowAttributeProc)(HWND, DWORD, PVOID, DWORD);
+    DwmGetWindowAttributeProc pDwmGetWindowAttribute = nullptr;
+    if (hDwmapi) {
+        pDwmGetWindowAttribute = (DwmGetWindowAttributeProc)GetProcAddress (hDwmapi, "DwmGetWindowAttribute");
+    }
+
     // Build monitor scale factor cache
     std::unordered_map<HMONITOR, double> scaleFactorCache;
 
@@ -500,6 +508,29 @@ Napi::Array getWindowsSummary (const Napi::CallbackInfo& info) {
             }
         }
 
+        // Check window visibility (more comprehensive than just IsWindowVisible)
+        bool isVisible = true;
+        
+        // Check if window is cloaked by DWM (Windows 8+)
+        // Cloaked windows are technically "visible" but hidden by the system
+        if (pDwmGetWindowAttribute) {
+            DWORD cloaked = 0;
+            // DWMWA_CLOAKED = 14
+            HRESULT hr = pDwmGetWindowAttribute (handle, 14, &cloaked, sizeof(cloaked));
+            if (SUCCEEDED(hr) && cloaked != 0) {
+                isVisible = false;
+            }
+        }
+        
+        // Calculate actual dimensions
+        double width = std::floor ((rect.right - rect.left) / scaleFactor);
+        double height = std::floor ((rect.bottom - rect.top) / scaleFactor);
+        
+        // Filter out zero or very small windows (likely invisible UI elements)
+        if (width < 1 || height < 1) {
+            isVisible = false;
+        }
+
         // Create summary object
         Napi::Object summary = Napi::Object::New (env);
         summary.Set ("id", Napi::Number::New (env, _win));
@@ -511,14 +542,17 @@ Napi::Array getWindowsSummary (const Napi::CallbackInfo& info) {
         Napi::Object bounds = Napi::Object::New (env);
         bounds.Set ("x", Napi::Number::New (env, std::floor (rect.left / scaleFactor)));
         bounds.Set ("y", Napi::Number::New (env, std::floor (rect.top / scaleFactor)));
-        bounds.Set ("width", Napi::Number::New (env, std::floor ((rect.right - rect.left) / scaleFactor)));
-        bounds.Set ("height", Napi::Number::New (env, std::floor ((rect.bottom - rect.top) / scaleFactor)));
+        bounds.Set ("width", Napi::Number::New (env, width));
+        bounds.Set ("height", Napi::Number::New (env, height));
         summary.Set ("bounds", bounds);
 
         // Z-order
         auto zIt = zOrderMap.find (handle);
         int zOrder = (zIt != zOrderMap.end ()) ? zIt->second : -1;
         summary.Set ("zOrder", Napi::Number::New (env, zOrder));
+        
+        // Visibility
+        summary.Set ("isVisible", Napi::Boolean::New (env, isVisible));
 
         arr.Set (resultIndex++, summary);
     }
@@ -526,6 +560,9 @@ Napi::Array getWindowsSummary (const Napi::CallbackInfo& info) {
     // Cleanup
     if (hShcore) {
         FreeLibrary (hShcore);
+    }
+    if (hDwmapi) {
+        FreeLibrary (hDwmapi);
     }
 
     return arr;

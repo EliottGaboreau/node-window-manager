@@ -6,12 +6,13 @@ function getElapsedMs(start) {
   return Number(diff) / 1e6
 }
 
-function formatWindowLine(rank, z, title, bounds, exeName) {
+function formatWindowLine(rank, z, title, bounds, exeName, isVisible) {
   const safeTitle = title ?? ""
   const { x = 0, y = 0, width = 0, height = 0 } = bounds || {}
   const zLabel = Number.isInteger(z) && z >= 0 ? `Z=${z}` : "Z=unknown"
+  const visLabel = isVisible !== undefined ? ` vis=${isVisible}` : ""
   const exeLabel = exeName ? ` exe=${exeName}` : ""
-  return `#${rank} [${zLabel}] "${safeTitle}" x=${x} y=${y} w=${width} h=${height}${exeLabel}`
+  return `#${rank} [${zLabel}${visLabel}] "${safeTitle}" x=${x} y=${y} w=${width} h=${height}${exeLabel}`
 }
 
 async function main() {
@@ -23,7 +24,8 @@ async function main() {
     z: s.zOrder,
     title: s.title,
     bounds: s.bounds,
-    exeName: s.path ? path.basename(s.path) : ""
+    exeName: s.path ? path.basename(s.path) : "",
+    isVisible: s.isVisible
   }))
 
   info.sort((a, b) => {
@@ -33,7 +35,7 @@ async function main() {
   })
 
   info.forEach((w, idx) => {
-    console.log(formatWindowLine(idx + 1, w.z, w.title, w.bounds, w.exeName))
+    console.log(formatWindowLine(idx + 1, w.z, w.title, w.bounds, w.exeName, w.isVisible))
   })
 
   const totalMs = getElapsedMs(start).toFixed(2)
