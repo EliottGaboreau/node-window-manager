@@ -422,6 +422,35 @@ Napi::Array getWindowsSummary(const Napi::CallbackInfo &info) {
       continue;
     }
 
+    // Check visibility based on window properties
+    bool isVisible = true;
+    
+    // Check alpha (transparency) - invisible windows have alpha near 0
+    NSNumber *alphaValue = info[(id)kCGWindowAlpha];
+    if (alphaValue) {
+      double alpha = [alphaValue doubleValue];
+      if (alpha < 0.1) {
+        isVisible = false;
+      }
+    }
+    
+    // Check window layer - menu bar items and other system UI are on special layers
+    // Normal windows are on layer 0, menu bars and system UI are on higher layers
+    NSNumber *layerValue = info[(id)kCGWindowLayer];
+    if (layerValue) {
+      int layer = [layerValue intValue];
+      // Filter out windows on special layers (menu bar, status items, etc.)
+      // Layer 0 = normal windows, Layer 25 = menu bar/status items, Layer 101 = screen saver
+      if (layer != 0) {
+        isVisible = false;
+      }
+    }
+    
+    // Filter out zero or very small windows (likely invisible UI elements)
+    if (bounds.size.width < 1 || bounds.size.height < 1) {
+      isVisible = false;
+    }
+
     // Get Z-order from map
     int zOrder = -1;
     auto zIt = zOrderMap.find(handle);
@@ -445,6 +474,7 @@ Napi::Array getWindowsSummary(const Napi::CallbackInfo &info) {
     summary.Set("bounds", boundsObj);
 
     summary.Set("zOrder", Napi::Number::New(env, zOrder));
+    summary.Set("isVisible", Napi::Boolean::New(env, isVisible));
 
     results.push_back(summary);
   }
