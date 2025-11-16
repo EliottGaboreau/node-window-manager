@@ -27,6 +27,7 @@
     "build-d.ts": "tsc src/index.ts --emitDeclarationOnly -d --outDir ./dist",
     "build": "npm run build-gyp && npm run build-esm && npm run build-cjs && npm run build-d.ts",
     "print:windows": "node scripts/print-windows.mjs",
+    "watch:windows": "node scripts/watch-windows.mjs",
     "test": "node test/test.js"
   },
   "repository": {

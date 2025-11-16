@@ -8,11 +8,18 @@
 #include <thread>
 #include <fstream>
 #include <iostream>
+#include <atomic>
 
 extern "C" AXError _AXUIElementGetWindow(AXUIElementRef, CGWindowID* out);
 
 // CGWindowID to AXUIElementRef windows map
 std::map<int, AXUIElementRef> windowsMap;
+
+// Global variables for window monitoring
+static std::thread g_monitoringThread;
+static std::atomic<bool> g_monitoring(false);
+static Napi::ThreadSafeFunction g_tsfn;
+static std::vector<Napi::Object> g_lastWindowState;
 
 bool _requestAccessibility(bool showDialog) {
   NSDictionary* opts = @{static_cast<id> (kAXTrustedCheckOptionPrompt): showDialog ? @YES : @NO};
@@ -366,9 +373,8 @@ Napi::Number getWindowZOrder(const Napi::CallbackInfo &info) {
   return Napi::Number::New(env, (int)count);
 }
 
-Napi::Array getWindowsSummary(const Napi::CallbackInfo &info) {
-  Napi::Env env{info.Env()};
-
+// Helper function to build windows summary
+Napi::Array buildWindowsSummary(Napi::Env env) {
   CGWindowListOption listOptions = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
   CFArrayRef windowList = CGWindowListCopyWindowInfo(listOptions, kCGNullWindowID);
 
@@ -490,6 +496,96 @@ Napi::Array getWindowsSummary(const Napi::CallbackInfo &info) {
   return arr;
 }
 
+Napi::Array getWindowsSummary(const Napi::CallbackInfo &info) {
+  Napi::Env env{info.Env()};
+  return buildWindowsSummary(env);
+}
+
+// Helper to compare window states
+bool windowStateChanged(const Napi::Array& current, const std::vector<Napi::Object>& previous) {
+  if (current.Length() != previous.size()) {
+    return true;
+  }
+  
+  // Simple comparison - could be more sophisticated
+  // For now, just check if the number of windows changed
+  // In practice, the event system will fire on any change
+  return true;
+}
+
+// Monitoring thread function
+void monitoringThreadFunc() {
+  while (g_monitoring) {
+    if (g_tsfn) {
+      auto callback = [](Napi::Env env, Napi::Function jsCallback) {
+        Napi::Array summaries = buildWindowsSummary(env);
+        jsCallback.Call({ summaries });
+      };
+      
+      napi_status status = g_tsfn.NonBlockingCall(callback);
+      if (status != napi_ok) {
+        std::cerr << "Failed to call JS callback from monitoring thread" << std::endl;
+      }
+    }
+    
+    // Poll every 100ms
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+}
+
+Napi::Value startWindowsMonitoring(const Napi::CallbackInfo &info) {
+  Napi::Env env{info.Env()};
+  
+  if (g_monitoring) {
+    return env.Undefined();
+  }
+  
+  if (info.Length() < 1 || !info[0].IsFunction()) {
+    Napi::TypeError::New(env, "Function callback expected").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  
+  Napi::Function callback = info[0].As<Napi::Function>();
+  
+  // Create thread-safe function
+  g_tsfn = Napi::ThreadSafeFunction::New(
+    env,
+    callback,
+    "WindowsMonitoringCallback",
+    0,
+    1,
+    [](Napi::Env) {
+      g_monitoring = false;
+    }
+  );
+  
+  g_monitoring = true;
+  
+  // Start monitoring thread
+  g_monitoringThread = std::thread(monitoringThreadFunc);
+  
+  return env.Undefined();
+}
+
+Napi::Value stopWindowsMonitoring(const Napi::CallbackInfo &info) {
+  Napi::Env env{info.Env()};
+  
+  if (!g_monitoring) {
+    return env.Undefined();
+  }
+  
+  g_monitoring = false;
+  
+  if (g_monitoringThread.joinable()) {
+    g_monitoringThread.join();
+  }
+  
+  if (g_tsfn) {
+    g_tsfn.Release();
+  }
+  
+  return env.Undefined();
+}
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set(Napi::String::New(env, "getWindows"),
@@ -518,6 +614,10 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
                 Napi::Function::New(env, getWindowZOrder));
     exports.Set(Napi::String::New(env, "getWindowsSummary"),
                 Napi::Function::New(env, getWindowsSummary));
+    exports.Set(Napi::String::New(env, "startWindowsMonitoring"),
+                Napi::Function::New(env, startWindowsMonitoring));
+    exports.Set(Napi::String::New(env, "stopWindowsMonitoring"),
+                Napi::Function::New(env, stopWindowsMonitoring));
 
     return exports;
 }

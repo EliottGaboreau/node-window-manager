@@ -274,6 +274,12 @@ var WindowManager = class extends import_events.EventEmitter {
             this.emit("window-activated", new Window(win));
           }
         }, 50);
+      } else if (event === "windows-summary-updated") {
+        if (addon && addon.startWindowsMonitoring) {
+          addon.startWindowsMonitoring((summaries) => {
+            this.emit("windows-summary-updated", summaries);
+          });
+        }
       } else {
         return;
       }
@@ -284,6 +290,10 @@ var WindowManager = class extends import_events.EventEmitter {
         return;
       if (event === "window-activated") {
         clearInterval(interval);
+      } else if (event === "windows-summary-updated") {
+        if (addon && addon.stopWindowsMonitoring) {
+          addon.stopWindowsMonitoring();
+        }
       }
       registeredEvents = registeredEvents.filter((x) => x !== event);
     });
