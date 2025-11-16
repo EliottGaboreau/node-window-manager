@@ -35,6 +35,12 @@ class WindowManager extends EventEmitter {
             this.emit("window-activated", new Window(win))
           }
         }, 50)
+      } else if (event === "windows-summary-updated") {
+        if (addon && addon.startWindowsMonitoring) {
+          addon.startWindowsMonitoring((summaries: IWindowSummary[]) => {
+            this.emit("windows-summary-updated", summaries)
+          })
+        }
       } else {
         return
       }
@@ -47,6 +53,10 @@ class WindowManager extends EventEmitter {
 
       if (event === "window-activated") {
         clearInterval(interval)
+      } else if (event === "windows-summary-updated") {
+        if (addon && addon.stopWindowsMonitoring) {
+          addon.stopWindowsMonitoring()
+        }
       }
 
       registeredEvents = registeredEvents.filter(x => x !== event)

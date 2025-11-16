@@ -10,6 +10,11 @@
 
 typedef int (__stdcall* lp_GetScaleFactorForMonitor) (HMONITOR, DEVICE_SCALE_FACTOR*);
 
+// Global variables for window monitoring
+static HWINEVENTHOOK g_hookHandle = NULL;
+static Napi::ThreadSafeFunction g_tsfn;
+static bool g_monitoring = false;
+
 struct Process {
     int pid;
     std::string path;
@@ -404,9 +409,8 @@ Napi::Number getWindowZOrder (const Napi::CallbackInfo& info) {
     return Napi::Number::New (env, zIndex);
 }
 
-Napi::Array getWindowsSummary (const Napi::CallbackInfo& info) {
-    Napi::Env env{ info.Env () };
-
+// Helper function to build windows summary
+Napi::Array buildWindowsSummary(Napi::Env env) {
     _windows.clear ();
     EnumWindows (&EnumWindowsProc, NULL);
 
@@ -566,6 +570,11 @@ Napi::Array getWindowsSummary (const Napi::CallbackInfo& info) {
     }
 
     return arr;
+}
+
+Napi::Array getWindowsSummary (const Napi::CallbackInfo& info) {
+    Napi::Env env{ info.Env () };
+    return buildWindowsSummary(env);
 }
 
 Napi::Object getMonitorInfo (const Napi::CallbackInfo& info) {
@@ -755,6 +764,148 @@ Napi::Boolean showInstantly (const Napi::CallbackInfo& info) {
     return Napi::Boolean::New (env, true);
 }
 
+// Windows event hook callback
+void CALLBACK WinEventProc(
+    HWINEVENTHOOK hWinEventHook,
+    DWORD event,
+    HWND hwnd,
+    LONG idObject,
+    LONG idChild,
+    DWORD dwEventThread,
+    DWORD dwmsEventTime
+) {
+    if (!g_monitoring || !g_tsfn) {
+        return;
+    }
+
+    // Only process window-level events (not child controls)
+    if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF) {
+        return;
+    }
+
+    // Call the JS callback with updated window summary
+    auto callback = [](Napi::Env env, Napi::Function jsCallback) {
+        Napi::Array summaries = buildWindowsSummary(env);
+        jsCallback.Call({ summaries });
+    };
+
+    napi_status status = g_tsfn.NonBlockingCall(callback);
+    if (status != napi_ok) {
+        std::cerr << "Failed to call JS callback from WinEventProc" << std::endl;
+    }
+}
+
+Napi::Value startWindowsMonitoring(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (g_monitoring) {
+        return env.Undefined();
+    }
+
+    if (info.Length() < 1 || !info[0].IsFunction()) {
+        Napi::TypeError::New(env, "Function callback expected").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    Napi::Function callback = info[0].As<Napi::Function>();
+
+    // Create thread-safe function
+    g_tsfn = Napi::ThreadSafeFunction::New(
+        env,
+        callback,
+        "WindowsMonitoringCallback",
+        0,
+        1,
+        [](Napi::Env) {
+            // Cleanup when TSFN is finalized
+            g_monitoring = false;
+        }
+    );
+
+    // Set up the event hook for multiple events
+    g_hookHandle = SetWinEventHook(
+        EVENT_OBJECT_LOCATIONCHANGE,     // Start with location changes
+        EVENT_OBJECT_LOCATIONCHANGE,     // End with location changes
+        NULL,                             // No DLL
+        WinEventProc,                     // Callback function
+        0,                                // All processes
+        0,                                // All threads
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    );
+
+    if (!g_hookHandle) {
+        g_tsfn.Release();
+        Napi::Error::New(env, "Failed to set up event hook").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    // Also monitor reorder events
+    HWINEVENTHOOK reorderHook = SetWinEventHook(
+        EVENT_OBJECT_REORDER,
+        EVENT_OBJECT_REORDER,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    );
+
+    // Monitor create/destroy
+    SetWinEventHook(
+        EVENT_OBJECT_CREATE,
+        EVENT_OBJECT_CREATE,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    );
+
+    SetWinEventHook(
+        EVENT_OBJECT_DESTROY,
+        EVENT_OBJECT_DESTROY,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    );
+
+    SetWinEventHook(
+        EVENT_SYSTEM_MOVESIZEEND,
+        EVENT_SYSTEM_MOVESIZEEND,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    );
+
+    g_monitoring = true;
+
+    return env.Undefined();
+}
+
+Napi::Value stopWindowsMonitoring(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (!g_monitoring) {
+        return env.Undefined();
+    }
+
+    if (g_hookHandle) {
+        UnhookWinEvent(g_hookHandle);
+        g_hookHandle = NULL;
+    }
+
+    if (g_tsfn) {
+        g_tsfn.Release();
+    }
+
+    g_monitoring = false;
+
+    return env.Undefined();
+}
 
 Napi::Object Init (Napi::Env env, Napi::Object exports) {
     exports.Set (Napi::String::New (env, "getActiveWindow"), Napi::Function::New (env, getActiveWindow));
@@ -790,6 +941,8 @@ Napi::Object Init (Napi::Env env, Napi::Object exports) {
     exports.Set (Napi::String::New (env, "showInstantly"), Napi::Function::New (env, showInstantly));
     exports.Set (Napi::String::New (env, "getWindowZOrder"), Napi::Function::New (env, getWindowZOrder));
     exports.Set (Napi::String::New (env, "getWindowsSummary"), Napi::Function::New (env, getWindowsSummary));
+    exports.Set (Napi::String::New (env, "startWindowsMonitoring"), Napi::Function::New (env, startWindowsMonitoring));
+    exports.Set (Napi::String::New (env, "stopWindowsMonitoring"), Napi::Function::New (env, stopWindowsMonitoring));
     return exports;
 }
 
