@@ -23,4 +23,4 @@ declare class WindowManager extends EventEmitter {
     getWindowsSummary: () => IWindowSummary[];
 }
 declare const windowManager: WindowManager;
-export { windowManager, Window, addon };
+export { windowManager, Window, addon, IWindowSummary };

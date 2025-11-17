@@ -142,4 +142,4 @@ class WindowManager extends EventEmitter {
 
 const windowManager = new WindowManager()
 
-export { windowManager, Window, addon }
+export { windowManager, Window, addon, IWindowSummary }
