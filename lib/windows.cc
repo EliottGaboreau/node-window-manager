@@ -7,13 +7,17 @@
 #include <unordered_map>
 #include <vector>
 #include <windows.h>
+#include <thread>
+#include <atomic>
 
 typedef int (__stdcall* lp_GetScaleFactorForMonitor) (HMONITOR, DEVICE_SCALE_FACTOR*);
 
 // Global variables for window monitoring
-static HWINEVENTHOOK g_hookHandle = NULL;
+static std::vector<HWINEVENTHOOK> g_hooks;
 static Napi::ThreadSafeFunction g_tsfn;
-static bool g_monitoring = false;
+static std::atomic<bool> g_monitoring(false);
+static std::thread* g_monitorThread = nullptr;
+static DWORD g_monitorThreadId = 0;
 
 struct Process {
     int pid;
@@ -791,8 +795,80 @@ void CALLBACK WinEventProc(
 
     napi_status status = g_tsfn.NonBlockingCall(callback);
     if (status != napi_ok) {
-        std::cerr << "Failed to call JS callback from WinEventProc" << std::endl;
+        // std::cerr << "Failed to call JS callback from WinEventProc" << std::endl;
     }
+}
+
+void MonitorThreadProc() {
+    g_monitorThreadId = GetCurrentThreadId();
+
+    // Force creation of message queue
+    MSG msg;
+    PeekMessage(&msg, NULL, WM_USER, WM_USER, PM_NOREMOVE);
+
+    // Set up the event hook for multiple events
+    g_hooks.push_back(SetWinEventHook(
+        EVENT_OBJECT_LOCATIONCHANGE,
+        EVENT_OBJECT_LOCATIONCHANGE,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    ));
+
+    g_hooks.push_back(SetWinEventHook(
+        EVENT_OBJECT_REORDER,
+        EVENT_OBJECT_REORDER,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    ));
+
+    g_hooks.push_back(SetWinEventHook(
+        EVENT_OBJECT_CREATE,
+        EVENT_OBJECT_CREATE,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    ));
+
+    g_hooks.push_back(SetWinEventHook(
+        EVENT_OBJECT_DESTROY,
+        EVENT_OBJECT_DESTROY,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    ));
+
+    g_hooks.push_back(SetWinEventHook(
+        EVENT_SYSTEM_MOVESIZEEND,
+        EVENT_SYSTEM_MOVESIZEEND,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    ));
+
+    // Message loop
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        if (msg.message == WM_QUIT) break;
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+
+    // Cleanup hooks
+    for (auto hook : g_hooks) {
+        if (hook) UnhookWinEvent(hook);
+    }
+    g_hooks.clear();
 }
 
 Napi::Value startWindowsMonitoring(const Napi::CallbackInfo& info) {
@@ -818,70 +894,14 @@ Napi::Value startWindowsMonitoring(const Napi::CallbackInfo& info) {
         1,
         [](Napi::Env) {
             // Cleanup when TSFN is finalized
-            g_monitoring = false;
+            // We handle cleanup in stopWindowsMonitoring mainly
         }
     );
 
-    // Set up the event hook for multiple events
-    g_hookHandle = SetWinEventHook(
-        EVENT_OBJECT_LOCATIONCHANGE,     // Start with location changes
-        EVENT_OBJECT_LOCATIONCHANGE,     // End with location changes
-        NULL,                             // No DLL
-        WinEventProc,                     // Callback function
-        0,                                // All processes
-        0,                                // All threads
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
-    );
-
-    if (!g_hookHandle) {
-        g_tsfn.Release();
-        Napi::Error::New(env, "Failed to set up event hook").ThrowAsJavaScriptException();
-        return env.Undefined();
-    }
-
-    // Also monitor reorder events
-    HWINEVENTHOOK reorderHook = SetWinEventHook(
-        EVENT_OBJECT_REORDER,
-        EVENT_OBJECT_REORDER,
-        NULL,
-        WinEventProc,
-        0,
-        0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
-    );
-
-    // Monitor create/destroy
-    SetWinEventHook(
-        EVENT_OBJECT_CREATE,
-        EVENT_OBJECT_CREATE,
-        NULL,
-        WinEventProc,
-        0,
-        0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
-    );
-
-    SetWinEventHook(
-        EVENT_OBJECT_DESTROY,
-        EVENT_OBJECT_DESTROY,
-        NULL,
-        WinEventProc,
-        0,
-        0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
-    );
-
-    SetWinEventHook(
-        EVENT_SYSTEM_MOVESIZEEND,
-        EVENT_SYSTEM_MOVESIZEEND,
-        NULL,
-        WinEventProc,
-        0,
-        0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
-    );
-
     g_monitoring = true;
+    
+    // Start the monitor thread
+    g_monitorThread = new std::thread(MonitorThreadProc);
 
     return env.Undefined();
 }
@@ -893,10 +913,19 @@ Napi::Value stopWindowsMonitoring(const Napi::CallbackInfo& info) {
         return env.Undefined();
     }
 
-    if (g_hookHandle) {
-        UnhookWinEvent(g_hookHandle);
-        g_hookHandle = NULL;
+    // Signal thread to exit
+    if (g_monitorThreadId != 0) {
+        PostThreadMessage(g_monitorThreadId, WM_QUIT, 0, 0);
     }
+
+    if (g_monitorThread) {
+        if (g_monitorThread->joinable()) {
+            g_monitorThread->join();
+        }
+        delete g_monitorThread;
+        g_monitorThread = nullptr;
+    }
+    g_monitorThreadId = 0;
 
     if (g_tsfn) {
         g_tsfn.Release();
