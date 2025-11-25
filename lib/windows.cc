@@ -18,6 +18,7 @@ static Napi::ThreadSafeFunction g_tsfn;
 static std::atomic<bool> g_monitoring(false);
 static std::thread* g_monitorThread = nullptr;
 static DWORD g_monitorThreadId = 0;
+static DWORD g_ownProcessId = 0;
 
 struct Process {
     int pid;
@@ -787,6 +788,33 @@ void CALLBACK WinEventProc(
         return;
     }
 
+    // Get the process ID of the window that generated the event
+    DWORD eventProcessId = 0;
+    if (hwnd) {
+        GetWindowThreadProcessId(hwnd, &eventProcessId);
+    }
+
+    // Selective filtering for our own process to avoid event flooding
+    // For our own process (Electron), only process important events:
+    // - EVENT_SYSTEM_MOVESIZEEND: Window finished moving/resizing
+    // - EVENT_SYSTEM_FOREGROUND: Window gained focus
+    // - EVENT_SYSTEM_MINIMIZESTART/END: Window minimized/restored
+    // For other processes, process all monitored events
+    if (eventProcessId == g_ownProcessId) {
+        // Only process these specific events from our own process
+        bool shouldProcess = (
+            event == EVENT_SYSTEM_MOVESIZEEND ||
+            event == EVENT_SYSTEM_FOREGROUND ||
+            event == EVENT_SYSTEM_MINIMIZESTART ||
+            event == EVENT_SYSTEM_MINIMIZEEND
+        );
+        
+        if (!shouldProcess) {
+            return;
+        }
+    }
+    // For other processes, process all events (they fall through)
+
     // Call the JS callback with updated window summary
     auto callback = [](Napi::Env env, Napi::Function jsCallback) {
         Napi::Array summaries = buildWindowsSummary(env);
@@ -801,6 +829,7 @@ void CALLBACK WinEventProc(
 
 void MonitorThreadProc() {
     g_monitorThreadId = GetCurrentThreadId();
+    g_ownProcessId = GetCurrentProcessId();
 
     // Force creation of message queue
     MSG msg;
