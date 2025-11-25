@@ -857,6 +857,36 @@ void MonitorThreadProc() {
         WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
     ));
 
+    g_hooks.push_back(SetWinEventHook(
+        EVENT_SYSTEM_FOREGROUND,
+        EVENT_SYSTEM_FOREGROUND,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    ));
+
+    g_hooks.push_back(SetWinEventHook(
+        EVENT_SYSTEM_MINIMIZESTART,
+        EVENT_SYSTEM_MINIMIZESTART,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    ));
+
+    g_hooks.push_back(SetWinEventHook(
+        EVENT_SYSTEM_MINIMIZEEND,
+        EVENT_SYSTEM_MINIMIZEEND,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    ));
+
     // Message loop
     while (GetMessage(&msg, NULL, 0, 0)) {
         if (msg.message == WM_QUIT) break;
