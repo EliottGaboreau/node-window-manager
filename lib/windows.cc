@@ -814,7 +814,7 @@ void MonitorThreadProc() {
         WinEventProc,
         0,
         0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+        WINEVENT_OUTOFCONTEXT
     ));
 
     g_hooks.push_back(SetWinEventHook(
@@ -824,7 +824,7 @@ void MonitorThreadProc() {
         WinEventProc,
         0,
         0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+        WINEVENT_OUTOFCONTEXT
     ));
 
     g_hooks.push_back(SetWinEventHook(
@@ -834,7 +834,7 @@ void MonitorThreadProc() {
         WinEventProc,
         0,
         0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+        WINEVENT_OUTOFCONTEXT
     ));
 
     g_hooks.push_back(SetWinEventHook(
@@ -844,7 +844,7 @@ void MonitorThreadProc() {
         WinEventProc,
         0,
         0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+        WINEVENT_OUTOFCONTEXT
     ));
 
     g_hooks.push_back(SetWinEventHook(
@@ -854,7 +854,7 @@ void MonitorThreadProc() {
         WinEventProc,
         0,
         0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+        WINEVENT_OUTOFCONTEXT
     ));
 
     g_hooks.push_back(SetWinEventHook(
@@ -864,7 +864,7 @@ void MonitorThreadProc() {
         WinEventProc,
         0,
         0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+        WINEVENT_OUTOFCONTEXT
     ));
 
     g_hooks.push_back(SetWinEventHook(
@@ -874,7 +874,7 @@ void MonitorThreadProc() {
         WinEventProc,
         0,
         0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+        WINEVENT_OUTOFCONTEXT
     ));
 
     g_hooks.push_back(SetWinEventHook(
@@ -884,7 +884,7 @@ void MonitorThreadProc() {
         WinEventProc,
         0,
         0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+        WINEVENT_OUTOFCONTEXT
     ));
 
     // Message loop
