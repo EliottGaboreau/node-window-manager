@@ -427,13 +427,6 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
         walker = GetWindow (walker, GW_HWNDNEXT);
     }
 
-    // Load SHcore.dll once for all windows
-    HMODULE hShcore = LoadLibraryA ("SHcore.dll");
-    lp_GetScaleFactorForMonitor getScaleFactor = nullptr;
-    if (hShcore) {
-        getScaleFactor = (lp_GetScaleFactorForMonitor)GetProcAddress (hShcore, "GetScaleFactorForMonitor");
-    }
-
     // Load dwmapi.dll once for DWM cloaking checks
     HMODULE hDwmapi = LoadLibraryA ("dwmapi.dll");
     typedef HRESULT (WINAPI *DwmGetWindowAttributeProc)(HWND, DWORD, PVOID, DWORD);
@@ -441,21 +434,6 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
     if (hDwmapi) {
         pDwmGetWindowAttribute = (DwmGetWindowAttributeProc)GetProcAddress (hDwmapi, "DwmGetWindowAttribute");
     }
-
-    // Get PRIMARY monitor's scale factor - used for all coordinate conversions
-    // This matches Electron's DIP coordinate system which uses a consistent scale
-    double primaryScaleFactor = 1.0;
-    POINT ptZero = { 0, 0 };
-    HMONITOR hPrimaryMonitor = MonitorFromPoint(ptZero, MONITOR_DEFAULTTOPRIMARY);
-    if (getScaleFactor && hPrimaryMonitor) {
-        DEVICE_SCALE_FACTOR sf{};
-        if (SUCCEEDED(getScaleFactor(hPrimaryMonitor, &sf))) {
-            primaryScaleFactor = static_cast<double>(sf) / 100.;
-        }
-    }
-
-    // Build monitor scale factor cache (for per-window width/height scaling)
-    std::unordered_map<HMONITOR, double> scaleFactorCache;
 
     auto arr = Napi::Array::New (env);
     int resultIndex = 0;
@@ -513,21 +491,6 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
         if (!GetWindowRect (handle, &rect))
             continue;
 
-        // Get monitor and scale factor (cached) - used for width/height of this window
-        HMONITOR hMonitor = MonitorFromWindow (handle, MONITOR_DEFAULTTONEAREST);
-        double windowScaleFactor = 1.0;
-
-        auto scaleIt = scaleFactorCache.find (hMonitor);
-        if (scaleIt != scaleFactorCache.end ()) {
-            windowScaleFactor = scaleIt->second;
-        } else if (getScaleFactor) {
-            DEVICE_SCALE_FACTOR sf{};
-            if (SUCCEEDED (getScaleFactor (hMonitor, &sf))) {
-                windowScaleFactor = static_cast<double> (sf) / 100.;
-                scaleFactorCache[hMonitor] = windowScaleFactor;
-            }
-        }
-
         // Check window visibility (more comprehensive than just IsWindowVisible)
         bool isVisible = true;
         
@@ -542,12 +505,12 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
             }
         }
         
-        // Calculate actual dimensions using primary scale factor for consistency with Electron's DIP system
-        double width = std::floor ((rect.right - rect.left) / primaryScaleFactor);
-        double height = std::floor ((rect.bottom - rect.top) / primaryScaleFactor);
+        // Calculate physical dimensions for filtering
+        int physWidth = rect.right - rect.left;
+        int physHeight = rect.bottom - rect.top;
         
         // Filter out zero or very small windows (likely invisible UI elements)
-        if (width < 1 || height < 1) {
+        if (physWidth < 1 || physHeight < 1) {
             isVisible = false;
         }
 
@@ -558,12 +521,12 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
         summary.Set ("path", Napi::String::New (env, path));
         summary.Set ("processId", Napi::Number::New (env, static_cast<int> (pid)));
 
-        // Bounds: all coordinates use PRIMARY scale factor for consistent Electron DIP coordinates
+        // Bounds: Return raw physical coordinates - Electron handles DIP conversion
         Napi::Object bounds = Napi::Object::New (env);
-        bounds.Set ("x", Napi::Number::New (env, std::floor (rect.left / primaryScaleFactor)));
-        bounds.Set ("y", Napi::Number::New (env, std::floor (rect.top / primaryScaleFactor)));
-        bounds.Set ("width", Napi::Number::New (env, width));
-        bounds.Set ("height", Napi::Number::New (env, height));
+        bounds.Set ("x", Napi::Number::New (env, rect.left));
+        bounds.Set ("y", Napi::Number::New (env, rect.top));
+        bounds.Set ("width", Napi::Number::New (env, rect.right - rect.left));
+        bounds.Set ("height", Napi::Number::New (env, rect.bottom - rect.top));
         summary.Set ("bounds", bounds);
 
         // Z-order
@@ -578,9 +541,6 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
     }
 
     // Cleanup
-    if (hShcore) {
-        FreeLibrary (hShcore);
-    }
     if (hDwmapi) {
         FreeLibrary (hDwmapi);
     }
