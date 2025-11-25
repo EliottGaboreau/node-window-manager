@@ -454,6 +454,9 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
         }
     }
 
+    // Build monitor scale factor cache (for per-window width/height scaling)
+    std::unordered_map<HMONITOR, double> scaleFactorCache;
+
     auto arr = Napi::Array::New (env);
     int resultIndex = 0;
 
@@ -509,6 +512,21 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
         RECT rect{};
         if (!GetWindowRect (handle, &rect))
             continue;
+
+        // Get monitor and scale factor (cached) - used for width/height of this window
+        HMONITOR hMonitor = MonitorFromWindow (handle, MONITOR_DEFAULTTONEAREST);
+        double windowScaleFactor = 1.0;
+
+        auto scaleIt = scaleFactorCache.find (hMonitor);
+        if (scaleIt != scaleFactorCache.end ()) {
+            windowScaleFactor = scaleIt->second;
+        } else if (getScaleFactor) {
+            DEVICE_SCALE_FACTOR sf{};
+            if (SUCCEEDED (getScaleFactor (hMonitor, &sf))) {
+                windowScaleFactor = static_cast<double> (sf) / 100.;
+                scaleFactorCache[hMonitor] = windowScaleFactor;
+            }
+        }
 
         // Check window visibility (more comprehensive than just IsWindowVisible)
         bool isVisible = true;
