@@ -454,9 +454,6 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
         }
     }
 
-    // Build monitor scale factor cache (for per-window width/height scaling)
-    std::unordered_map<HMONITOR, double> scaleFactorCache;
-
     auto arr = Napi::Array::New (env);
     int resultIndex = 0;
 
@@ -513,21 +510,6 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
         if (!GetWindowRect (handle, &rect))
             continue;
 
-        // Get monitor and scale factor (cached) - used for width/height of this window
-        HMONITOR hMonitor = MonitorFromWindow (handle, MONITOR_DEFAULTTONEAREST);
-        double windowScaleFactor = 1.0;
-
-        auto scaleIt = scaleFactorCache.find (hMonitor);
-        if (scaleIt != scaleFactorCache.end ()) {
-            windowScaleFactor = scaleIt->second;
-        } else if (getScaleFactor) {
-            DEVICE_SCALE_FACTOR sf{};
-            if (SUCCEEDED (getScaleFactor (hMonitor, &sf))) {
-                windowScaleFactor = static_cast<double> (sf) / 100.;
-                scaleFactorCache[hMonitor] = windowScaleFactor;
-            }
-        }
-
         // Check window visibility (more comprehensive than just IsWindowVisible)
         bool isVisible = true;
         
@@ -542,9 +524,9 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
             }
         }
         
-        // Calculate actual dimensions using window's monitor scale factor
-        double width = std::floor ((rect.right - rect.left) / windowScaleFactor);
-        double height = std::floor ((rect.bottom - rect.top) / windowScaleFactor);
+        // Calculate actual dimensions using primary scale factor for consistency with Electron's DIP system
+        double width = std::floor ((rect.right - rect.left) / primaryScaleFactor);
+        double height = std::floor ((rect.bottom - rect.top) / primaryScaleFactor);
         
         // Filter out zero or very small windows (likely invisible UI elements)
         if (width < 1 || height < 1) {
@@ -558,8 +540,7 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
         summary.Set ("path", Napi::String::New (env, path));
         summary.Set ("processId", Napi::Number::New (env, static_cast<int> (pid)));
 
-        // Bounds: x/y use PRIMARY scale factor for consistent coordinates with Electron
-        // width/height use the window's monitor scale factor for correct logical dimensions
+        // Bounds: all coordinates use PRIMARY scale factor for consistent Electron DIP coordinates
         Napi::Object bounds = Napi::Object::New (env);
         bounds.Set ("x", Napi::Number::New (env, std::floor (rect.left / primaryScaleFactor)));
         bounds.Set ("y", Napi::Number::New (env, std::floor (rect.top / primaryScaleFactor)));
