@@ -19,6 +19,12 @@ static std::atomic<bool> g_monitoring(false);
 static std::thread* g_monitorThread = nullptr;
 static DWORD g_monitorThreadId = 0;
 
+// Throttling state variables
+static std::atomic<DWORD> g_lastProcessedTime(0);
+static std::atomic<bool> g_pendingTrailingUpdate(false);
+static UINT_PTR g_throttleTimerId = 0;
+static const DWORD THROTTLE_MS = 64; // ~30fps throttle interval
+
 struct Process {
     int pid;
     std::string path;
@@ -740,6 +746,23 @@ Napi::Boolean showInstantly (const Napi::CallbackInfo& info) {
     return Napi::Boolean::New (env, true);
 }
 
+// Helper function to invoke JS callback with window summary
+static void invokeWindowsSummaryCallback() {
+    if (!g_monitoring || !g_tsfn) {
+        return;
+    }
+
+    auto callback = [](Napi::Env env, Napi::Function jsCallback) {
+        Napi::Array summaries = buildWindowsSummary(env);
+        jsCallback.Call({ summaries });
+    };
+
+    g_tsfn.NonBlockingCall(callback);
+}
+
+// Forward declaration for timer callback
+void CALLBACK ThrottleTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
+
 // Windows event hook callback
 void CALLBACK WinEventProc(
     HWINEVENTHOOK hWinEventHook,
@@ -759,16 +782,39 @@ void CALLBACK WinEventProc(
         return;
     }
 
-    // Call the JS callback with updated window summary
-    auto callback = [](Napi::Env env, Napi::Function jsCallback) {
-        Napi::Array summaries = buildWindowsSummary(env);
-        jsCallback.Call({ summaries });
-    };
+    // Throttle: check if enough time has passed since last processing
+    DWORD now = GetTickCount();
+    DWORD lastTime = g_lastProcessedTime.load();
+    DWORD elapsed = now - lastTime;
 
-    napi_status status = g_tsfn.NonBlockingCall(callback);
-    if (status != napi_ok) {
-        // std::cerr << "Failed to call JS callback from WinEventProc" << std::endl;
+    if (elapsed >= THROTTLE_MS) {
+        // Enough time passed - process immediately
+        g_lastProcessedTime.store(now);
+        g_pendingTrailingUpdate.store(false);
+        
+        // Cancel any pending timer
+        if (g_throttleTimerId) {
+            KillTimer(NULL, g_throttleTimerId);
+            g_throttleTimerId = 0;
+        }
+        
+        invokeWindowsSummaryCallback();
+    } else if (!g_pendingTrailingUpdate.exchange(true)) {
+        // Schedule trailing-edge timer to capture final state
+        UINT delay = THROTTLE_MS - elapsed;
+        g_throttleTimerId = SetTimer(NULL, 0, delay, ThrottleTimerProc);
     }
+    // else: timer already pending, do nothing - it will capture the final state
+}
+
+// Timer callback for trailing-edge throttle updates
+void CALLBACK ThrottleTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
+    KillTimer(NULL, idEvent);
+    g_throttleTimerId = 0;
+    g_lastProcessedTime.store(GetTickCount());
+    g_pendingTrailingUpdate.store(false);
+    
+    invokeWindowsSummaryCallback();
 }
 
 void MonitorThreadProc() {
@@ -914,6 +960,14 @@ Napi::Value stopWindowsMonitoring(const Napi::CallbackInfo& info) {
     if (!g_monitoring) {
         return env.Undefined();
     }
+
+    // Cancel any pending throttle timer
+    if (g_throttleTimerId) {
+        KillTimer(NULL, g_throttleTimerId);
+        g_throttleTimerId = 0;
+    }
+    g_pendingTrailingUpdate.store(false);
+    g_lastProcessedTime.store(0);
 
     // Signal thread to exit
     if (g_monitorThreadId != 0) {
