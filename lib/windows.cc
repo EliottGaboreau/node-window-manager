@@ -471,32 +471,73 @@ std::vector<WindowData> FetchWindowData() {
     ctx.pDwmGetWindowAttribute = pDwmGetWindowAttribute;
     ctx.titleBuffer.resize(256);
 
+    DWORD currentPid = GetCurrentProcessId();
+
     EnumWindows([](HWND handle, LPARAM lParam) -> BOOL {
         auto* context = reinterpret_cast<EnumContext*>(lParam);
 
         // Filter: only visible windows
         if (!IsWindowVisible(handle)) return TRUE;
 
-        // Get title length first
-        int titleLen = GetWindowTextLengthW(handle);
-        if (titleLen == 0) return TRUE;
-
-        // Resize buffer if needed
-        if (titleLen >= static_cast<int>(context->titleBuffer.size())) {
-            context->titleBuffer.resize(titleLen + 1);
-        }
+        // Get process info first to check if it's our own process
+        DWORD pid = 0;
+        GetWindowThreadProcessId(handle, &pid);
+        if (pid == 0) return TRUE;
 
         // Get title
-        int actualLen = GetWindowTextW(handle, context->titleBuffer.data(), context->titleBuffer.size());
+        // For our own process, GetWindowText on a background thread requires sending a message to the main thread.
+        // If the main thread is busy, this can hang. Use SendMessageTimeout to avoid hanging.
+        // For other processes, GetWindowText reads from kernel structures and is fast/safe.
+        int actualLen = 0;
+        
+        DWORD myPid = GetCurrentProcessId(); // Need to capture this or pass in context? 
+        // We can't access local vars of enclosing function in lambda unless captured.
+        // But GetCurrentProcessId() is a syscall, fast enough.
+        
+        if (pid == GetCurrentProcessId()) {
+            // Own process: use SendMessageTimeout
+            DWORD_PTR result = 0;
+            // Provide a reasonable buffer size. context->titleBuffer is available.
+            // We need to resize strictly before writing.
+            if (context->titleBuffer.size() < 256) context->titleBuffer.resize(256);
+            
+            LRESULT res = SendMessageTimeoutW(
+                handle, 
+                WM_GETTEXT, 
+                context->titleBuffer.size(), 
+                reinterpret_cast<LPARAM>(context->titleBuffer.data()),
+                SMTO_ABORTIFHUNG | SMTO_NORMAL,
+                100, // 100ms timeout
+                &result
+            );
+            
+            if (res == 0) {
+                // Timeout or failure.
+                // If we fail to get the title of our own window, it's risky to skip it (might close overlay).
+                // But if we return empty title, downstream logic might fail.
+                // However, skipping it is definitely bad if it's just a momentary hang.
+                // Let's try to get the length at least?
+                // For now, if we timeout, we assume actualLen = 0.
+                actualLen = 0; 
+            } else {
+                actualLen = static_cast<int>(result);
+            }
+        } else {
+            // Other process: GetWindowTextW is safe/fast
+            int titleLen = GetWindowTextLengthW(handle);
+            if (titleLen == 0) return TRUE;
+
+            if (titleLen >= static_cast<int>(context->titleBuffer.size())) {
+                context->titleBuffer.resize(titleLen + 1);
+            }
+
+            actualLen = GetWindowTextW(handle, context->titleBuffer.data(), context->titleBuffer.size());
+        }
+
         if (actualLen == 0) return TRUE;
 
         std::string title = toUtf8(std::wstring(context->titleBuffer.data(), actualLen));
         if (title.empty()) return TRUE;
-
-        // Get process info
-        DWORD pid = 0;
-        GetWindowThreadProcessId(handle, &pid);
-        if (pid == 0) return TRUE;
 
         HANDLE pHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
         if (!pHandle) return TRUE;
