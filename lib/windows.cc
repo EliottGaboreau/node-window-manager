@@ -9,6 +9,7 @@
 #include <windows.h>
 #include <thread>
 #include <atomic>
+#include <chrono>
 
 typedef int (__stdcall* lp_GetScaleFactorForMonitor) (HMONITOR, DEVICE_SCALE_FACTOR*);
 
@@ -19,9 +20,29 @@ static std::atomic<bool> g_monitoring(false);
 static std::thread* g_monitorThread = nullptr;
 static DWORD g_monitorThreadId = 0;
 
+// Throttling globals
+static std::chrono::steady_clock::time_point g_lastUpdateTime;
+static UINT_PTR g_timerId = 0;
+static const int THROTTLE_MS = 50;
+
 struct Process {
     int pid;
     std::string path;
+};
+
+struct WindowData {
+    int64_t id;
+    std::string title;
+    std::string path;
+    int processId;
+    struct {
+        long x;
+        long y;
+        long width;
+        long height;
+    } bounds;
+    int zOrder;
+    bool isVisible;
 };
 
 template <typename T>
@@ -413,144 +434,233 @@ Napi::Number getWindowZOrder (const Napi::CallbackInfo& info) {
     return Napi::Number::New (env, zIndex);
 }
 
-// Helper function to build windows summary
-Napi::Array buildWindowsSummary(Napi::Env env) {
-    _windows.clear ();
-    EnumWindows (&EnumWindowsProc, NULL);
+// ---------------------------------------------------------
+// Thread-safe Window Data Collection & Conversion
+// ---------------------------------------------------------
 
-    // Build Z-order map once
+std::vector<WindowData> FetchWindowData() {
+    std::vector<WindowData> result;
+
+    // 1. Snapshot Z-Order
     std::unordered_map<HWND, int> zOrderMap;
     int currentZ = 0;
-    HWND walker = GetTopWindow (NULL);
+    HWND walker = GetTopWindow(NULL);
     while (walker) {
         zOrderMap[walker] = currentZ++;
-        walker = GetWindow (walker, GW_HWNDNEXT);
+        walker = GetWindow(walker, GW_HWNDNEXT);
     }
 
-    // Load dwmapi.dll once for DWM cloaking checks
-    HMODULE hDwmapi = LoadLibraryA ("dwmapi.dll");
+    // Load dwmapi.dll once thread-locally or statically
+    static HMODULE hDwmapi = LoadLibraryA("dwmapi.dll");
     typedef HRESULT (WINAPI *DwmGetWindowAttributeProc)(HWND, DWORD, PVOID, DWORD);
-    DwmGetWindowAttributeProc pDwmGetWindowAttribute = nullptr;
-    if (hDwmapi) {
-        pDwmGetWindowAttribute = (DwmGetWindowAttributeProc)GetProcAddress (hDwmapi, "DwmGetWindowAttribute");
+    static DwmGetWindowAttributeProc pDwmGetWindowAttribute = nullptr;
+    if (hDwmapi && !pDwmGetWindowAttribute) {
+        pDwmGetWindowAttribute = (DwmGetWindowAttributeProc)GetProcAddress(hDwmapi, "DwmGetWindowAttribute");
     }
 
-    auto arr = Napi::Array::New (env);
-    int resultIndex = 0;
+    // Enum context
+    struct EnumContext {
+        std::vector<WindowData>* result;
+        std::unordered_map<HWND, int>* zOrderMap;
+        DwmGetWindowAttributeProc pDwmGetWindowAttribute;
+        std::vector<WCHAR> titleBuffer;
+    } ctx;
+    
+    ctx.result = &result;
+    ctx.zOrderMap = &zOrderMap;
+    ctx.pDwmGetWindowAttribute = pDwmGetWindowAttribute;
+    ctx.titleBuffer.resize(256);
 
-    // Reusable buffer for window titles (most titles < 256 chars)
-    std::vector<WCHAR> titleBuffer (256);
-
-    for (auto _win : _windows) {
-        HWND handle = reinterpret_cast<HWND> (_win);
+    EnumWindows([](HWND handle, LPARAM lParam) -> BOOL {
+        auto* context = reinterpret_cast<EnumContext*>(lParam);
 
         // Filter: only visible windows
-        if (!IsWindowVisible (handle))
-            continue;
+        if (!IsWindowVisible(handle)) return TRUE;
 
         // Get title length first
-        int titleLen = GetWindowTextLengthW (handle);
-        if (titleLen == 0)
-            continue;
+        int titleLen = GetWindowTextLengthW(handle);
+        if (titleLen == 0) return TRUE;
 
         // Resize buffer if needed
-        if (titleLen >= static_cast<int>(titleBuffer.size ())) {
-            titleBuffer.resize (titleLen + 1);
+        if (titleLen >= static_cast<int>(context->titleBuffer.size())) {
+            context->titleBuffer.resize(titleLen + 1);
         }
 
-        // Get title into reusable buffer
-        int actualLen = GetWindowTextW (handle, titleBuffer.data (), titleBuffer.size ());
-        if (actualLen == 0)
-            continue;
+        // Get title
+        int actualLen = GetWindowTextW(handle, context->titleBuffer.data(), context->titleBuffer.size());
+        if (actualLen == 0) return TRUE;
 
-        std::string title = toUtf8 (std::wstring (titleBuffer.data (), actualLen));
-        if (title.empty ())
-            continue;
+        std::string title = toUtf8(std::wstring(context->titleBuffer.data(), actualLen));
+        if (title.empty()) return TRUE;
 
-        // Get process info (optimized to batch process handle operations)
+        // Get process info
         DWORD pid = 0;
-        GetWindowThreadProcessId (handle, &pid);
-        if (pid == 0)
-            continue;
+        GetWindowThreadProcessId(handle, &pid);
+        if (pid == 0) return TRUE;
 
-        HANDLE pHandle = OpenProcess (PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-        if (!pHandle)
-            continue;
+        HANDLE pHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (!pHandle) return TRUE;
 
-        DWORD pathSize = MAX_PATH;
         wchar_t exePath[MAX_PATH]{};
-        QueryFullProcessImageNameW (pHandle, 0, exePath, &pathSize);
-        CloseHandle (pHandle);
+        DWORD pathSize = MAX_PATH;
+        QueryFullProcessImageNameW(pHandle, 0, exePath, &pathSize);
+        CloseHandle(pHandle);
 
-        std::string path = toUtf8 (std::wstring (exePath));
-        if (path.empty ())
-            continue;
+        std::string path = toUtf8(std::wstring(exePath));
+        if (path.empty()) return TRUE;
 
         // Get bounds
         RECT rect{};
-        if (!GetWindowRect (handle, &rect))
-            continue;
+        if (!GetWindowRect(handle, &rect)) return TRUE;
 
-        // Check window visibility (more comprehensive than just IsWindowVisible)
+        // Check window visibility
         bool isVisible = true;
         
-        // Check if window is cloaked by DWM (Windows 8+)
-        // Cloaked windows are technically "visible" but hidden by the system
-        if (pDwmGetWindowAttribute) {
+        // Check cloaking
+        if (context->pDwmGetWindowAttribute) {
             DWORD cloaked = 0;
             // DWMWA_CLOAKED = 14
-            HRESULT hr = pDwmGetWindowAttribute (handle, 14, &cloaked, sizeof(cloaked));
+            HRESULT hr = context->pDwmGetWindowAttribute(handle, 14, &cloaked, sizeof(cloaked));
             if (SUCCEEDED(hr) && cloaked != 0) {
                 isVisible = false;
             }
         }
         
-        // Calculate physical dimensions for filtering
-        int physWidth = rect.right - rect.left;
-        int physHeight = rect.bottom - rect.top;
-        
-        // Filter out zero or very small windows (likely invisible UI elements)
-        if (physWidth < 1 || physHeight < 1) {
+        // Filter out zero or very small windows
+        int width = rect.right - rect.left;
+        int height = rect.bottom - rect.top;
+        if (width < 1 || height < 1) {
             isVisible = false;
         }
 
-        // Create summary object
-        Napi::Object summary = Napi::Object::New (env);
-        summary.Set ("id", Napi::Number::New (env, _win));
-        summary.Set ("title", Napi::String::New (env, title));
-        summary.Set ("path", Napi::String::New (env, path));
-        summary.Set ("processId", Napi::Number::New (env, static_cast<int> (pid)));
+        // Get Z-order
+        int zOrder = -1;
+        auto zIt = context->zOrderMap->find(handle);
+        if (zIt != context->zOrderMap->end()) {
+            zOrder = zIt->second;
+        }
 
-        // Bounds: Return raw physical coordinates - Electron handles DIP conversion
-        Napi::Object bounds = Napi::Object::New (env);
-        bounds.Set ("x", Napi::Number::New (env, rect.left));
-        bounds.Set ("y", Napi::Number::New (env, rect.top));
-        bounds.Set ("width", Napi::Number::New (env, rect.right - rect.left));
-        bounds.Set ("height", Napi::Number::New (env, rect.bottom - rect.top));
-        summary.Set ("bounds", bounds);
+        WindowData wd;
+        wd.id = reinterpret_cast<int64_t>(handle);
+        wd.title = title;
+        wd.path = path;
+        wd.processId = static_cast<int>(pid);
+        wd.bounds.x = rect.left;
+        wd.bounds.y = rect.top;
+        wd.bounds.width = width;
+        wd.bounds.height = height;
+        wd.zOrder = zOrder;
+        wd.isVisible = isVisible;
 
-        // Z-order
-        auto zIt = zOrderMap.find (handle);
-        int zOrder = (zIt != zOrderMap.end ()) ? zIt->second : -1;
-        summary.Set ("zOrder", Napi::Number::New (env, zOrder));
+        context->result->push_back(wd);
+
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&ctx));
+
+    return result;
+}
+
+Napi::Array ConvertToJs(Napi::Env env, const std::vector<WindowData>& data) {
+    auto arr = Napi::Array::New(env, data.size());
+    for (size_t i = 0; i < data.size(); i++) {
+        const auto& d = data[i];
         
-        // Visibility
-        summary.Set ("isVisible", Napi::Boolean::New (env, isVisible));
+        // Create summary object
+        auto obj = Napi::Object::New(env);
+        obj.Set("id", Napi::Number::New(env, d.id));
+        obj.Set("title", Napi::String::New(env, d.title));
+        obj.Set("path", Napi::String::New(env, d.path));
+        obj.Set("processId", Napi::Number::New(env, d.processId));
+        
+        auto bounds = Napi::Object::New(env);
+        bounds.Set("x", Napi::Number::New(env, d.bounds.x));
+        bounds.Set("y", Napi::Number::New(env, d.bounds.y));
+        bounds.Set("width", Napi::Number::New(env, d.bounds.width));
+        bounds.Set("height", Napi::Number::New(env, d.bounds.height));
+        obj.Set("bounds", bounds);
 
-        arr.Set (resultIndex++, summary);
+        obj.Set("zOrder", Napi::Number::New(env, d.zOrder));
+        obj.Set("isVisible", Napi::Boolean::New(env, d.isVisible));
+        
+        arr.Set(i, obj);
     }
-
-    // Cleanup
-    if (hDwmapi) {
-        FreeLibrary (hDwmapi);
-    }
-
     return arr;
 }
 
 Napi::Array getWindowsSummary (const Napi::CallbackInfo& info) {
     Napi::Env env{ info.Env () };
-    return buildWindowsSummary(env);
+    auto data = FetchWindowData();
+    return ConvertToJs(env, data);
+}
+
+// ---------------------------------------------------------
+// Monitoring Logic
+// ---------------------------------------------------------
+
+void ProcessUpdate() {
+    // 1. Fetch data on background thread
+    auto* data = new std::vector<WindowData>(FetchWindowData());
+
+    // 2. Queue for JS thread
+    auto callback = [](Napi::Env env, Napi::Function jsCallback, void* rawData) {
+        auto* data = static_cast<std::vector<WindowData>*>(rawData);
+        if (data) {
+            Napi::Array arr = ConvertToJs(env, *data);
+            jsCallback.Call({ arr });
+            delete data;
+        }
+    };
+
+    if (g_tsfn) {
+        napi_status status = g_tsfn.NonBlockingCall(data, callback);
+        if (status != napi_ok) {
+            delete data;
+        }
+    } else {
+        delete data;
+    }
+}
+
+void CALLBACK TimerProc(HWND, UINT, UINT_PTR id, DWORD) {
+    if (id == g_timerId) {
+        KillTimer(NULL, g_timerId);
+        g_timerId = 0;
+        g_lastUpdateTime = std::chrono::steady_clock::now();
+        ProcessUpdate();
+    }
+}
+
+void CheckAndUpdate() {
+    auto now = std::chrono::steady_clock::now();
+    
+    // First update check
+    if (g_lastUpdateTime.time_since_epoch().count() == 0) {
+        g_lastUpdateTime = now;
+        ProcessUpdate();
+        return;
+    }
+
+    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - g_lastUpdateTime).count();
+
+    if (diff < THROTTLE_MS) {
+        if (g_timerId == 0) {
+            // Schedule trailing update
+            UINT delay = static_cast<UINT>(THROTTLE_MS - diff);
+            if (delay < 10) delay = 10;
+            // Use NULL HWND to associate with thread message queue
+            g_timerId = SetTimer(NULL, 0, delay, TimerProc);
+        }
+        return;
+    }
+
+    // Cancel pending timer if we are updating now
+    if (g_timerId != 0) {
+        KillTimer(NULL, g_timerId);
+        g_timerId = 0;
+    }
+
+    g_lastUpdateTime = now;
+    ProcessUpdate();
 }
 
 Napi::Object getMonitorInfo (const Napi::CallbackInfo& info) {
@@ -759,16 +869,7 @@ void CALLBACK WinEventProc(
         return;
     }
 
-    // Call the JS callback with updated window summary
-    auto callback = [](Napi::Env env, Napi::Function jsCallback) {
-        Napi::Array summaries = buildWindowsSummary(env);
-        jsCallback.Call({ summaries });
-    };
-
-    napi_status status = g_tsfn.NonBlockingCall(callback);
-    if (status != napi_ok) {
-        // std::cerr << "Failed to call JS callback from WinEventProc" << std::endl;
-    }
+    CheckAndUpdate();
 }
 
 void MonitorThreadProc() {
@@ -928,6 +1029,13 @@ Napi::Value stopWindowsMonitoring(const Napi::CallbackInfo& info) {
         g_monitorThread = nullptr;
     }
     g_monitorThreadId = 0;
+
+    if (g_timerId != 0) {
+        // We can't use KillTimer here because it must be called from the same thread that called SetTimer.
+        // But since the thread is joined and destroyed, the timer is gone.
+        // Just reset the ID.
+        g_timerId = 0;
+    }
 
     if (g_tsfn) {
         g_tsfn.Release();
