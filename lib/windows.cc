@@ -419,6 +419,35 @@ Napi::Number getWindowZOrder (const Napi::CallbackInfo& info) {
     return Napi::Number::New (env, zIndex);
 }
 
+struct WindowFilter {
+    std::string executableName;
+    std::string titlePrefix;
+};
+
+// List of applications to ignore in the window summary
+static const std::vector<WindowFilter> IGNORE_LIST = {
+    { "xeester.exe", "XEESTER:" }
+};
+
+bool shouldIgnoreWindow(const std::string& path, const std::string& title) {
+    if (path.empty()) return false;
+
+    // Extract filename from path
+    size_t lastSep = path.find_last_of("\\/");
+    std::string filename = (lastSep != std::string::npos) ? path.substr(lastSep + 1) : path;
+
+    for (const auto& filter : IGNORE_LIST) {
+        if (filename == filter.executableName) {
+            // Check title prefix
+            if (title.length() >= filter.titlePrefix.length() &&
+                title.compare(0, filter.titlePrefix.length(), filter.titlePrefix) == 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 // Helper function to build windows summary
 Napi::Array buildWindowsSummary(Napi::Env env) {
     _windows.clear ();
@@ -490,6 +519,10 @@ Napi::Array buildWindowsSummary(Napi::Env env) {
 
         std::string path = toUtf8 (std::wstring (exePath));
         if (path.empty ())
+            continue;
+
+        // Apply filters
+        if (shouldIgnoreWindow(path, title))
             continue;
 
         // Get bounds
