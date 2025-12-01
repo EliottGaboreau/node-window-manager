@@ -381,7 +381,8 @@ struct WindowFilter {
 // List of applications to ignore in the window summary
 static const std::vector<WindowFilter> IGNORE_LIST = {
     { "xeester.app", "XEESTER:" },
-    { "PokerTracker4.app", "MVS " }
+    { "PokerTracker4.app", "MVS " },
+    { "PokerTrackerHud4.app", "ptTableCover" }
 };
 
 bool shouldIgnoreWindow(const char* pathStr, const char* titleStr) {
