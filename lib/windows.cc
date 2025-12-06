@@ -428,7 +428,9 @@ struct WindowFilter {
 static const std::vector<WindowFilter> IGNORE_LIST = {
     { "xeester.exe", "XEESTER:" },
     { "PokerTracker4.exe", "MVS " },
-    { "PokerTrackerHud4.exe", "ptTableCover" }
+    { "PokerTrackerHud4.exe", "ptTableCover" },
+    { "HM3Hud.exe", "MVS " },
+    { "HM3HudProcess.exe", "ptTableCover" }
 };
 
 bool shouldIgnoreWindow(const std::string& path, const std::string& title) {
