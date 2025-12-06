@@ -382,7 +382,9 @@ struct WindowFilter {
 static const std::vector<WindowFilter> IGNORE_LIST = {
     { "xeester.app", "XEESTER:" },
     { "PokerTracker4.app", "MVS " },
-    { "PokerTrackerHud4.app", "PokerTrackerHud4" }
+    { "PokerTrackerHud4.app", "PokerTrackerHud4" },
+    { "HM3Hud.app", "MVS " },
+    { "HM3HudProcess.app", "ptTableCover" }
 };
 
 bool shouldIgnoreWindow(const char* pathStr, const char* titleStr) {
