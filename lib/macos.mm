@@ -594,10 +594,7 @@ NSInteger computeScreenHash(NSPoint mouseLocation) {
 Napi::Value startDragCrossedMonitorMonitoring(const Napi::CallbackInfo &info) {
   Napi::Env env{info.Env()};
   
-  std::cout << "[macos.mm] startDragCrossedMonitorMonitoring called" << std::endl;
-  
   if (g_dragMonitor != nil) {
-    std::cout << "[macos.mm] Monitor already exists, skipping" << std::endl;
     return env.Undefined();
   }
   
@@ -632,10 +629,8 @@ Napi::Value startDragCrossedMonitorMonitoring(const Napi::CallbackInfo &info) {
             // Start of drag
             g_isDragging = YES;
             g_lastScreenHash = currentScreenHash;
-            std::cout << "[macos.mm] Drag started on screen hash: " << g_lastScreenHash << std::endl;
           } else if (currentScreenHash != g_lastScreenHash && currentScreenHash != 0) {
             // Screen changed during drag - fire callback immediately
-            std::cout << "[macos.mm] Screen changed during drag: " << g_lastScreenHash << " -> " << currentScreenHash << std::endl;
             g_lastScreenHash = currentScreenHash;
             
             if (g_dragCrossedMonitorTsfn) {
@@ -648,7 +643,6 @@ Napi::Value startDragCrossedMonitorMonitoring(const Napi::CallbackInfo &info) {
         } else if (event.type == NSEventTypeLeftMouseUp) {
           // End of drag - fire callback if screen changed during drag
           if (g_isDragging) {
-            std::cout << "[macos.mm] Drag ended, firing callback" << std::endl;
             g_isDragging = NO;
             
             if (g_dragCrossedMonitorTsfn) {
@@ -661,8 +655,6 @@ Napi::Value startDragCrossedMonitorMonitoring(const Napi::CallbackInfo &info) {
         }
       }
     }];
-  
-  std::cout << "[macos.mm] Global event monitor installed: " << (g_dragMonitor != nil ? "YES" : "NO") << std::endl;
   
   return env.Undefined();
 }
