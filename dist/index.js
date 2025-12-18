@@ -243,6 +243,17 @@ var WindowManager = class extends EventEmitter {
             this.emit("windows-summary-updated", summaries);
           });
         }
+      } else if (event === "drag-crossed-monitor") {
+        console.log("[node-window-manager] Registering drag-crossed-monitor listener");
+        if (addon && addon.startDragCrossedMonitorMonitoring) {
+          console.log("[node-window-manager] Calling startDragCrossedMonitorMonitoring");
+          addon.startDragCrossedMonitorMonitoring(() => {
+            console.log("[node-window-manager] drag-crossed-monitor callback fired!");
+            this.emit("drag-crossed-monitor");
+          });
+        } else {
+          console.log("[node-window-manager] addon.startDragCrossedMonitorMonitoring not available!");
+        }
       } else {
         return;
       }
@@ -256,6 +267,10 @@ var WindowManager = class extends EventEmitter {
       } else if (event === "windows-summary-updated") {
         if (addon && addon.stopWindowsMonitoring) {
           addon.stopWindowsMonitoring();
+        }
+      } else if (event === "drag-crossed-monitor") {
+        if (addon && addon.stopDragCrossedMonitorMonitoring) {
+          addon.stopDragCrossedMonitorMonitoring();
         }
       }
       registeredEvents = registeredEvents.filter((x) => x !== event);
