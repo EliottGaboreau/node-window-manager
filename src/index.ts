@@ -41,6 +41,12 @@ class WindowManager extends EventEmitter {
             this.emit("windows-summary-updated", summaries)
           })
         }
+      } else if (event === "drag-crossed-monitor") {
+        if (addon && addon.startDragCrossedMonitorMonitoring) {
+          addon.startDragCrossedMonitorMonitoring(() => {
+            this.emit("drag-crossed-monitor")
+          })
+        }
       } else {
         return
       }
@@ -56,6 +62,10 @@ class WindowManager extends EventEmitter {
       } else if (event === "windows-summary-updated") {
         if (addon && addon.stopWindowsMonitoring) {
           addon.stopWindowsMonitoring()
+        }
+      } else if (event === "drag-crossed-monitor") {
+        if (addon && addon.stopDragCrossedMonitorMonitoring) {
+          addon.stopDragCrossedMonitorMonitoring()
         }
       }
 
