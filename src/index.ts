@@ -42,10 +42,15 @@ class WindowManager extends EventEmitter {
           })
         }
       } else if (event === "drag-crossed-monitor") {
+        console.log("[node-window-manager] Registering drag-crossed-monitor listener")
         if (addon && addon.startDragCrossedMonitorMonitoring) {
+          console.log("[node-window-manager] Calling startDragCrossedMonitorMonitoring")
           addon.startDragCrossedMonitorMonitoring(() => {
+            console.log("[node-window-manager] drag-crossed-monitor callback fired!")
             this.emit("drag-crossed-monitor")
           })
+        } else {
+          console.log("[node-window-manager] addon.startDragCrossedMonitorMonitoring not available!")
         }
       } else {
         return
