@@ -575,7 +575,9 @@ void monitoringThreadFunc() {
 static id g_dragMonitor = nil;
 static Napi::ThreadSafeFunction g_dragCrossedMonitorTsfn;
 static NSInteger g_lastScreenHash = 0;
+static NSInteger g_dragStartScreenHash = 0;
 static BOOL g_isDragging = NO;
+static BOOL g_didCrossMonitor = NO;
 
 // Helper to compute screen hash
 NSInteger computeScreenHash(NSPoint mouseLocation) {
@@ -626,25 +628,19 @@ Napi::Value startDragCrossedMonitorMonitoring(const Napi::CallbackInfo &info) {
         
         if (event.type == NSEventTypeLeftMouseDragged) {
           if (!g_isDragging) {
-            // Start of drag
+            // Start of drag - record starting screen
             g_isDragging = YES;
+            g_dragStartScreenHash = currentScreenHash;
             g_lastScreenHash = currentScreenHash;
+            g_didCrossMonitor = NO;
           } else if (currentScreenHash != g_lastScreenHash && currentScreenHash != 0) {
-            // Screen changed during drag - fire callback immediately
+            // Screen changed during drag - mark that we crossed monitors
             g_lastScreenHash = currentScreenHash;
-            
-            if (g_dragCrossedMonitorTsfn) {
-              auto callback = [](Napi::Env env, Napi::Function jsCallback) {
-                jsCallback.Call({});
-              };
-              g_dragCrossedMonitorTsfn.NonBlockingCall(callback);
-            }
+            g_didCrossMonitor = YES;
           }
         } else if (event.type == NSEventTypeLeftMouseUp) {
-          // End of drag - fire callback if screen changed during drag
-          if (g_isDragging) {
-            g_isDragging = NO;
-            
+          // End of drag - fire callback only if we crossed monitors during drag
+          if (g_isDragging && g_didCrossMonitor) {
             if (g_dragCrossedMonitorTsfn) {
               auto callback = [](Napi::Env env, Napi::Function jsCallback) {
                 jsCallback.Call({});
@@ -652,6 +648,9 @@ Napi::Value startDragCrossedMonitorMonitoring(const Napi::CallbackInfo &info) {
               g_dragCrossedMonitorTsfn.NonBlockingCall(callback);
             }
           }
+          // Reset state
+          g_isDragging = NO;
+          g_didCrossMonitor = NO;
         }
       }
     }];
