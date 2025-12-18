@@ -571,6 +571,112 @@ void monitoringThreadFunc() {
   }
 }
 
+// Drag-crossed-monitor detection
+static id g_dragMonitor = nil;
+static Napi::ThreadSafeFunction g_dragCrossedMonitorTsfn;
+static NSInteger g_lastScreenHash = 0;
+static BOOL g_isDragging = NO;
+
+// Helper to compute screen hash
+NSInteger computeScreenHash(NSPoint mouseLocation) {
+  @autoreleasepool {
+    for (NSScreen *screen in [NSScreen screens]) {
+      NSRect frame = [screen frame];
+      if (NSPointInRect(mouseLocation, frame)) {
+        // Create a hash from screen bounds
+        return (NSInteger)(frame.origin.x * 10000 + frame.origin.y * 1000 + frame.size.width);
+      }
+    }
+    return 0;
+  }
+}
+
+Napi::Value startDragCrossedMonitorMonitoring(const Napi::CallbackInfo &info) {
+  Napi::Env env{info.Env()};
+  
+  if (g_dragMonitor != nil) {
+    return env.Undefined();
+  }
+  
+  if (info.Length() < 1 || !info[0].IsFunction()) {
+    Napi::TypeError::New(env, "Function callback expected").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  
+  Napi::Function callback = info[0].As<Napi::Function>();
+  
+  // Create thread-safe function
+  g_dragCrossedMonitorTsfn = Napi::ThreadSafeFunction::New(
+    env,
+    callback,
+    "DragCrossedMonitorCallback",
+    0,
+    1,
+    [](Napi::Env) {
+      // Cleanup
+    }
+  );
+  
+  // Install global event monitor
+  g_dragMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:(NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp)
+    handler:^(NSEvent *event) {
+      @autoreleasepool {
+        NSPoint mouseLocation = [NSEvent mouseLocation];
+        NSInteger currentScreenHash = computeScreenHash(mouseLocation);
+        
+        if (event.type == NSEventTypeLeftMouseDragged) {
+          if (!g_isDragging) {
+            // Start of drag
+            g_isDragging = YES;
+            g_lastScreenHash = currentScreenHash;
+          } else if (currentScreenHash != g_lastScreenHash && currentScreenHash != 0) {
+            // Screen changed during drag - fire callback immediately
+            g_lastScreenHash = currentScreenHash;
+            
+            if (g_dragCrossedMonitorTsfn) {
+              auto callback = [](Napi::Env env, Napi::Function jsCallback) {
+                jsCallback.Call({});
+              };
+              g_dragCrossedMonitorTsfn.NonBlockingCall(callback);
+            }
+          }
+        } else if (event.type == NSEventTypeLeftMouseUp) {
+          // End of drag - fire callback if screen changed during drag
+          if (g_isDragging) {
+            g_isDragging = NO;
+            
+            if (g_dragCrossedMonitorTsfn) {
+              auto callback = [](Napi::Env env, Napi::Function jsCallback) {
+                jsCallback.Call({});
+              };
+              g_dragCrossedMonitorTsfn.NonBlockingCall(callback);
+            }
+          }
+        }
+      }
+    }];
+  
+  return env.Undefined();
+}
+
+Napi::Value stopDragCrossedMonitorMonitoring(const Napi::CallbackInfo &info) {
+  Napi::Env env{info.Env()};
+  
+  if (g_dragMonitor != nil) {
+    [NSEvent removeMonitor:g_dragMonitor];
+    g_dragMonitor = nil;
+  }
+  
+  g_isDragging = NO;
+  g_lastScreenHash = 0;
+  
+  if (g_dragCrossedMonitorTsfn) {
+    g_dragCrossedMonitorTsfn.Release();
+  }
+  
+  return env.Undefined();
+}
+
 Napi::Value startWindowsMonitoring(const Napi::CallbackInfo &info) {
   Napi::Env env{info.Env()};
   
@@ -656,6 +762,10 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
                 Napi::Function::New(env, startWindowsMonitoring));
     exports.Set(Napi::String::New(env, "stopWindowsMonitoring"),
                 Napi::Function::New(env, stopWindowsMonitoring));
+    exports.Set(Napi::String::New(env, "startDragCrossedMonitorMonitoring"),
+                Napi::Function::New(env, startDragCrossedMonitorMonitoring));
+    exports.Set(Napi::String::New(env, "stopDragCrossedMonitorMonitoring"),
+                Napi::Function::New(env, stopDragCrossedMonitorMonitoring));
 
     return exports;
 }
